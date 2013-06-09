@@ -1,4 +1,0 @@
-nbsvm
-=====
-
-No bullshit VMs

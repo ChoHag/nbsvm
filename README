@@ -1,0 +1,195 @@
+nbsvm
+=====
+
+Create, start and interact with VMs from the command line without the bullshit.
+Requires lvm, kvm and sudo. Socat and a vnc client are needed to interact with
+(and stop) a running VM.
+
+
+Create a hard drive image which the VM will use by default:
+
+$ nbsvm foo newimg
+
+
+Start a VM with default settings:
+
+$ nbsvm foo start
+
+
+Stop a VM:
+
+$ nbsvm foo stop
+
+
+Stop a VM nicely:
+
+$ nbsvm foo shutdown
+
+
+Connect to the serial port of a VM:
+
+$ nbsvm foo console
+
+
+Connect to the Qemu monitor port:
+
+$ nbsvm foo monitor
+
+
+Connect to the display with VNC:
+
+$ nbsvm foo vnc
+
+
+nbsvm uses socat to expose the unix socket KVM provides on a TCP port, which it
+then connects to with VNC. Even though it is only used internally, you cannot
+connect to more than one VM on the default port:
+$ vnc_port=4001 nbsvm foo vnc
+$ vnc_port=4002 nbsvm bar vnc
+
+
+And the most minimal amount of magic:
+
+KVM starts with a fairly conservative sert of options:
+  * 512 MB RAM
+  * A display exportable over VNC.
+  * USB and a tablet pointing device.
+  * A network device connected to a tap.
+
+And, of course, the serial ports and the drives.
+
+The drives are created using LVM in /dev/<vg>/nbsvm-<vm>-n, with n starting
+from 0. All drives are included when the VM is started.
+
+Arguments can be added to the kvm command by including them after the start
+command.
+
+All options to kvm (apart from the serial and monitor ports) can be overridden
+with environment variables which contain the options to include in their place.
+Ordered by how interesting they are.
+
+  mem:
+    Amount of RAM in MB.
+    Default: 512
+
+  drives:
+    The drives to attach to the VM.
+    Default: -drive if=virtio,file=/dev/...<vm>-<n> (A single string listing
+      all drives from 0 up)
+
+  drive_if:
+    The interface to connect the drive to (the virtio in the above default in
+    fact comes from this variable).
+    Default: virtio
+
+  display:
+    How to run the display.
+    Default: -display vnc=unix:$drawer/vnc.sock (drawer is the directory kvm
+      keeps its socks in: /var/lib/nbsvm/<vm>)
+
+  vnc_port:
+    The TCP port to pretend VNC is listening on internally. Has no real bearing
+    on anything whatsoever.
+    Default: 5900
+
+  usb:
+    USB options. To turn USB off, this must be set to something irrelevant,
+    like whitespace:
+      $ usb=' ' nbsvm foo start
+    Default: -usb -usbdevice tablet
+
+  network:
+    Networking options. I've not thought about this very much but I think the
+    way it works is about right. Basically it will create a tap device on the
+    host connected to a plain old ethernet card on the VM, leaving the rest up
+    to your imagination.
+    Default: -device virtio-net-pci,netdev=net -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
+
+  net_if:
+    As with drive_if, this is where the virtio-net-pci above comes from.
+    Default: virtio-net-pci
+
+  bridge:
+    As a convenience, if this variable is set it will add the KVM's tap device
+    to the named bridge by doing this (exactly this, nothing more or less).
+      # brctl addif $bridge tap-$vm
+    Default: none
+
+
+
+Examples:
+
+
+Start a VM without any USB:
+
+$ usb=' ' nbsvm foo start
+
+
+More RAM:
+
+$ mem=2048 nbsvm foo start
+
+
+Emulate real hardware rather than using virtio:
+
+$ net_if=e1000 drive_if=scsi nbsvm foo start
+
+
+Start a VM without any of its drives:
+
+$ drives=' ' nbsvm foo start
+
+
+Start a VM with custom options:
+
+$ nbsvm foo start -soundhw sb16
+$ nbsvm foo start -cdrom ~/installer.iso -boot d
+
+
+Some handy little extras:
+
+
+Chaining
+
+
+Commands can be chained. Options to the start command *must* be terminated with --:
+
+
+Create a(nother) disc for the foo VM, then start it.
+
+$ nbsvm foo newimg start
+
+
+As above, but open the Qemu monitor after the VM is started. Note that the --
+must be included:
+
+$ nbsvm foo newimg start -- monitor
+
+
+Restart a VM
+
+$ nbsvm foo stop start
+
+
+Classes
+
+
+If the class variable is set, this determines which file
+(/etc/nbsvm/$class.class) is sourced to set the default values for any action
+taken within that class. The class variable can either be set in the
+environment or by linking the nbsvm script to symlink in $PATH called
+${class}vm, and then calling this script. The environment variable will take
+precedence over the script name.
+
+This is where the one piece of bullshit I've located comes in because
+overriding variables is done in the wrong order. This is my
+/etc/nbsvm/win.class:
+
+mem=${mem:-2048}
+net_if=e1000
+drive_if=ide
+drive_size=20G
+
+With thie setup, net_if, drive_if and drive_size cannot be changed at runtime.
+The only way to do it is to put the override in /etc/nbsvm/<class>-<vm>.vm. mem
+will continue to work as normal.

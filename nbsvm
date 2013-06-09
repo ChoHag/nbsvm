@@ -1,0 +1,101 @@
+#!/bin/bash
+[ "$debug" ] && set -x
+set -e
+
+if [ -z "$class" -a "${0##*/}" != "nbsvm" ]; then
+  class=${0##*/}
+  class=${class%vm}
+fi
+vm=$1
+shift
+
+if [ -e /etc/nbsvm/default.class ]; then
+  . /etc/nbsvm/default.class
+fi
+
+if [ -e /etc/nbsvm/"$class".class ]; then
+  . /etc/nbsvm/"$class".class
+fi
+
+dev=nbsvm${class:+-$class}-$vm
+drawer=/var/lib/nbsvm${class:+-class}/$vm
+if [ -e /dev/${vg:-vg0}/$dev-0 ]; then drive_devs=(/dev/${vg:-vg0}/$dev-*); else unset drive_devs; fi
+
+if [ -e /etc/nbsvm/${class:+class-}$vm.vm ]; then
+  . /etc/nbsvm/${class:+class-}$vm.vm
+fi
+
+while [ "$1" ]; do
+  cmd=$1
+  shift
+  
+  case "$cmd" in
+    newimg)
+      next=${#drive_devs[@]}
+      echo Creating ${drive_size:-10G} LV $vc/$dev-$next.
+      sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n $dev-$next
+      ;;
+      
+    start)
+      unset args
+      unset stop
+      while [ -n "$1" -a -z "$stop" ]; do
+	if [ ."$1" = ."--" ]; then
+	  stop=1
+	else
+          args=("${args[@]}" "$1")
+	fi
+        shift
+      done
+      sudo mkdir -p $drawer
+      echo Launching KVM \"$vm\"${class:+, type $class}.
+      sudo kvm --name $vm -m ${mem:-512}                   \
+        -serial unix:$drawer/console.sock,server,nowait    \
+        -monitor unix:$drawer/monitor.sock,server,nowait   \
+	                                                   \
+        ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
+	                                                   \
+        ${display:--display vnc=unix:$drawer/vnc.sock}     \
+	                                                   \
+        ${usb:--usb -usbdevice tablet}                     \
+	                                                   \
+        ${network:-
+          -device ${net_if:-virtio-net-pci},netdev=net                 
+          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no    
+        }                                                  \
+	                                                   \
+        "${args[@]}" &
+      if [ "$bridge" ]; then
+	sudo brctl addif $bridge tap-$vm
+      fi
+      echo Waiting for clean socks...
+      sleep 5
+      sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/*.sock
+      sudo chmod g+w $drawer/*.sock
+      ;;
+  
+    console|monitor)
+      echo For reasons unknown, ^O is the panic button.
+      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/$cmd.sock
+      ;;
+  
+    vnc)
+      socat TCP-LISTEN:${vnc_port:-5900},reuseaddr,fork UNIX-CLIENT:$drawer/vnc.sock &
+      vncviewer localhost:${vnc_port:-5900}
+      ;;
+  
+    stop|quit)
+      echo quit | socat - UNIX-CONNECT:$drawer/monitor.sock
+      ;;
+  
+    shutdown)
+      echo system_powerdown | socat - UNIX-CONNECT:$drawer/monitor.sock
+      ;;
+
+    *)
+      echo Unknown command: $cmd. >&2
+      exit 1
+      ;;
+
+  esac
+done
