@@ -6,6 +6,18 @@ Requires lvm, kvm and sudo. Socat and a vnc client are needed to interact with
 (and stop) a running VM.
 
 
+
+Install
+-------
+
+Place nbsvm in your $PATH, eg. /usr/local/bin.
+
+
+
+Usage
+-----
+
+
 Create a hard drive image which the VM will use by default:
 
 $ nbsvm foo newimg
@@ -117,7 +129,8 @@ Ordered by how interesting they are.
 
 
 
-Examples:
+Examples
+--------
 
 
 Start a VM without any USB:
@@ -146,10 +159,11 @@ $ nbsvm foo start -soundhw sb16
 $ nbsvm foo start -cdrom ~/installer.iso -boot d
 
 
-Some handy little extras:
+Extras
+------
 
 
-Chaining
+* Chaining
 
 
 Commands can be chained. Options to the start command *must* be terminated with --:
@@ -171,7 +185,8 @@ Restart a VM
 $ nbsvm foo stop start
 
 
-Classes
+
+* Classes
 
 
 If the class variable is set, this determines which file
