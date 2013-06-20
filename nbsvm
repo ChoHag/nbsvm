@@ -18,11 +18,11 @@ if [ -e /etc/nbsvm/"$class".class ]; then
 fi
 
 dev=nbsvm${class:+-$class}-$vm
-drawer=/var/lib/nbsvm${class:+-class}/$vm
+drawer=/var/lib/nbsvm${class:+-$class}/$vm
 if [ -e /dev/${vg:-vg0}/$dev-0 ]; then drive_devs=(/dev/${vg:-vg0}/$dev-*); else unset drive_devs; fi
 
-if [ -e /etc/nbsvm/${class:+class-}$vm.vm ]; then
-  . /etc/nbsvm/${class:+class-}$vm.vm
+if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
+  . /etc/nbsvm/${class:+$class-}$vm.vm
 fi
 
 while [ "$1" ]; do
@@ -65,13 +65,13 @@ while [ "$1" ]; do
         }                                                  \
 	                                                   \
         "${args[@]}" &
-      if [ "$bridge" ]; then
-	sudo brctl addif $bridge tap-$vm
-      fi
       echo Waiting for clean socks...
       sleep 5
       sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/*.sock
       sudo chmod g+w $drawer/*.sock
+      if [ "$bridge" ]; then
+	sudo brctl addif $bridge tap-$vm
+      fi
       ;;
   
     console|monitor)
