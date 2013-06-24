@@ -48,10 +48,12 @@ while [ "$1" ]; do
         shift
       done
       sudo mkdir -p $drawer
+      echo Laundering old socks.
+      sudo rm -f $drawer/{qemu,serial0,vnc}.sock
       echo Launching KVM \"$vm\"${class:+, type $class}.
       sudo kvm --name $vm -m ${mem:-512}                   \
-        -serial unix:$drawer/console.sock,server,nowait    \
-        -monitor unix:$drawer/monitor.sock,server,nowait   \
+        -serial unix:$drawer/serial0.sock,server,nowait    \
+        -monitor unix:$drawer/qemu.sock,server,nowait      \
 	                                                   \
         ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
 	                                                   \
@@ -66,17 +68,27 @@ while [ "$1" ]; do
 	                                                   \
         "${args[@]}" &
       echo Waiting for clean socks...
-      sleep 5
-      sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/*.sock
-      sudo chmod g+w $drawer/*.sock
-      if [ "$bridge" ]; then
-	sudo brctl addif $bridge tap-$vm
+      while ! [ -e $drawer/qemu.sock ]; do sleep 1; done
+      sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/{qemu,serial0,vnc}.sock
+      sudo chmod g+w $drawer/{qemu,serial0,vnc}.sock
+      if [ -z "$network" ]; then
+	echo Bringing up tap device tap-$vm
+	sudo ifconfig tap-$vm up
+	if [ "$bridge" ]; then
+	  echo Adding tap device to bridge $bridge
+	  sudo brctl addif $bridge tap-$vm
+	fi
       fi
       ;;
   
-    console|monitor)
+    console|serial|serial0)
       echo For reasons unknown, ^O is the panic button.
-      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/$cmd.sock
+      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/serial0.sock
+      ;;
+
+    monitor|kvm|qemu)
+      echo For reasons unknown, ^O is the panic button.
+      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/qemu.sock
       ;;
   
     vnc)
@@ -85,11 +97,11 @@ while [ "$1" ]; do
       ;;
   
     stop|quit)
-      echo quit | socat - UNIX-CONNECT:$drawer/monitor.sock
+      echo quit | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
   
     shutdown)
-      echo system_powerdown | socat - UNIX-CONNECT:$drawer/monitor.sock
+      echo system_powerdown | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
 
     *)
