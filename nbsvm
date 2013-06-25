@@ -30,7 +30,7 @@ while [ "$1" ]; do
   shift
   
   case "$cmd" in
-    newimg)
+    newimg|newimage)
       next=${#drive_devs[@]}
       echo Creating ${drive_size:-10G} LV $vc/$dev-$next.
       sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n $dev-$next
