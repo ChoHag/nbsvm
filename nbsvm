@@ -19,7 +19,13 @@ fi
 
 dev=nbsvm${class:+-$class}-$vm
 drawer=/var/lib/nbsvm${class:+-$class}/$vm
-if [ -e /dev/${vg:-vg0}/$dev-0 ]; then drive_devs=(/dev/${vg:-vg0}/$dev-*); else unset drive_devs; fi
+set_drive_devs() {
+  if [ -e /dev/${vg:-vg0}/$dev-0 ]; then
+    drive_devs=(/dev/${vg:-vg0}/$dev-*)
+  else
+    unset drive_devs
+  fi
+}
 
 if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
   . /etc/nbsvm/${class:+$class-}$vm.vm
@@ -31,8 +37,9 @@ while [ "$1" ]; do
   
   case "$cmd" in
     newimg|newimage)
+      set_drive_devs
       next=${#drive_devs[@]}
-      echo Creating ${drive_size:-10G} LV $vc/$dev-$next.
+      echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
       sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n $dev-$next
       ;;
       
@@ -51,6 +58,7 @@ while [ "$1" ]; do
       echo Laundering old socks.
       sudo rm -f $drawer/{qemu,serial0,vnc}.sock
       echo Launching KVM \"$vm\"${class:+, type $class}.
+      set_drive_devs
       sudo kvm --name $vm -m ${mem:-512}                   \
         -serial unix:$drawer/serial0.sock,server,nowait    \
         -monitor unix:$drawer/qemu.sock,server,nowait      \
@@ -62,8 +70,8 @@ while [ "$1" ]; do
         ${usb:--usb -usbdevice tablet}                     \
 	                                                   \
         ${network:-
-          -device ${net_if:-virtio-net-pci},netdev=net                 
-          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no    
+          -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
+          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
         }                                                  \
 	                                                   \
         "${args[@]}" &

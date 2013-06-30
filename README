@@ -121,6 +121,10 @@ Ordered by how interesting they are.
     As with drive_if, this is where the virtio-net-pci above comes from.
     Default: virtio-net-pci
 
+  mac:
+    If supplied, the default network device is given the supplied mac address
+    (the string ',mac=$mac' is appended to the -device option).
+
   bridge:
     As a convenience, if this variable is set it will add the KVM's tap device
     to the named bridge by doing this (exactly this, nothing more or less).
