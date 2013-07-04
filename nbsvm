@@ -75,8 +75,13 @@ while [ "$1" ]; do
         }                                                  \
 	                                                   \
         "${args[@]}" &
-      echo Waiting for clean socks...
-      while ! [ -e $drawer/qemu.sock ]; do sleep 1; done
+      echo -n Waiting for clean socks...
+      count=0
+      while ! ls $drawer/{qemu,serial0,vnc}.sock >/dev/null 2>&1; do
+	((count+=1)); if [ $count = 5 ]; then echo -n .; count=0; fi
+	sleep 1
+      done
+      echo
       sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/{qemu,serial0,vnc}.sock
       sudo chmod g+w $drawer/{qemu,serial0,vnc}.sock
       if [ -z "$network" ]; then
