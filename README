@@ -12,6 +12,8 @@ Install
 
 Place nbsvm in your $PATH, eg. /usr/local/bin.
 
+Everything else is documentation.
+
 
 
 Usage
@@ -21,6 +23,21 @@ Usage
 Create a hard drive image which the VM will use by default:
 
 $ nbsvm foo newimg
+
+
+Create a new drive as a snapshot of an existing drive.
+
+$ nbsvm foo snapshot
+
+
+Create a new drive as a clone of another device with dd. If you don't set bs
+(1048576 == 1MB) is will be unberably slow.
+
+$ bs=$((1048576*10)) nbsvm foo clone
+
+This trick is also handy:
+
+$ while kill -USR1 $DD_PID; do sleep 2; done
 
 
 Start a VM with default settings:
@@ -104,6 +121,31 @@ Ordered by how interesting they are.
     on anything whatsoever.
     Default: 5900
 
+  gold:
+    The name of the drive (including any id no.) to create a snapshot or clone
+    of.
+    Default: gold
+
+  source_lv:
+    The source LV to clone or snapshot. The VG must not be included, use the vg
+    or source variable.
+    Default: nbsvm-$gold or nbsvm-$class-$cold
+
+  source:
+    Not applicable to snapshots; The source device to clone from. Must be an LV
+    as I am too lazy to work out another method to calculate the size of the
+    device.
+    Default: $vg/$source_lv
+
+  bs:
+    The value to pass to the bs argument of the dd command when cloning.
+    Default: none
+
+  ddargs:
+    Any other arguments to include in the dd process of the clone command.
+    Included verbatim, unquoted.
+    Default: none
+
   usb:
     USB options. To turn USB off, this must be set to something irrelevant,
     like whitespace:
@@ -129,6 +171,11 @@ Ordered by how interesting they are.
     As a convenience, if this variable is set it will add the KVM's tap device
     to the named bridge by doing this (exactly this, nothing more or less).
       # brctl addif $bridge tap-$vm
+    Default: none
+
+  args:
+    Arguments to append to the kvm command in /etc/nbsvm/*. This variable is
+    parsed as a bash array and thus is useless on the command line.
     Default: none
 
 

@@ -1,0 +1,144 @@
+args
+  Interpreted as a quoted array of arguments to append to the kvm command line.
+  Only useful in /etc/nbsvm/*
+  Default: none
+
+bridge
+  The network bridge to add the default network tap device (tap-$vm) to.
+  Ignored if not set.
+  Default: none
+
+bs
+  A value to be used in place of the default 1MB bs option to dd, used by the
+  clone command.
+  Default: 1048576 (1MB)
+
+class
+  A global variable which determines what default device names to use, which
+  files in /etc/nbsvm to use, etc.
+  Default:
+    none unless the command called is not nbsvm, in which case it is that
+    command with the 'vm' suffix (which is not necessary) stripped.
+
+cmd
+  Internal variable used to keep track of which command is being run.
+
+count
+  Internal variable which I ought to rename.
+
+ddopt
+  Extra options included verbatim in the dd command (without quoting).
+  Default: none
+
+debug
+  Flag to print debugging output (essntially the -x flag).
+  Default: none
+
+dev
+  Internal variable naming the VM's hard drives.
+
+display
+  Options controlling how to run the display.
+  Default: -display vnc=unix:$drawer/vnc.sock
+
+drawer
+  Where kvm keeps its socks.
+  Default: /var/lib/nbsvm/$vm or /var/lib/nbsvm-class/$vm
+
+drive_devs
+  Internal variable listing all of the VM's hard drives.
+
+drive_if
+  The interface type to use to connect the default drives.
+  Default: virtio
+
+drives
+  If set, overrides any attempt by lvm to calculate drives and drive options.
+  Default: none
+
+drive_size
+  Size (passed to lvcreate -L) of new drives.
+  Default: 10G
+
+gold
+  Used in the filename template of the device to clone or snapshot. See source
+  for a fuller description.
+  Default: gold
+
+lvm_source
+  Internal variable used in determining the device to clone.
+
+mem
+  Amount of RAM to start the VM with.
+  Default: 512M
+
+net_if
+  The network device type to emulate. See network for a fuller description.
+  Default: virtio-net-pci
+
+network
+  Override the network device options.
+  
+  The default network configuration is to have one network device (named net)
+  of type $netif. If the mac variable is set it specifies the emulated device's
+  mac address. The device is paired on the host with a tap device named
+  tap-$vm.
+
+  The exact configuration used is:
+          -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
+          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
+  
+  If the network variable is not set, the tap device is brought up.
+          ifconfig tap-$vm up
+  
+  Then (and only then), if the bridge variable is set the tap is added to the
+  bridge it specifies:
+          brctl addif $bridge tap-vm
+
+next
+  Internal variable used to calculate the next drive id to create.
+
+size
+  Internal variable used in calculating the size of the device to clone.
+
+snapshot_size
+  The amount of space given to a LVM snapshot.
+
+source
+  The volume group and logical volume ($vg/$lv) used to create a clone or
+  snapshot. Clones may alternatively specify a full device path but it must
+  still be an LVM.
+
+  The default is calculated using $vg and $source_lv, or $vg and $gold (and
+  $class) if it's set:
+	  $vg/$source_lv
+          $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
+  
+source_lv
+  The full LV name to clone or snapshot. See source for a fuller description.
+  Default: nbsvm-$gold or nbsvm-$class-$gold
+
+stop
+  Internal variable used to work out what to do.
+
+usb
+  Full override of USB settings. By default there are USB devices so in order
+  to start a VM without USB this needs to be set to whitespace.
+  Default: -usb -usbdevice tablet
+
+vg
+  Where to create and look for VM drives.
+  Default: vg0
+
+vm
+  Internal variable used to track which VM to deal with. Set from the first
+  argument to nbsvm.
+
+vnc_port
+  The method used to connect a VNC client to KVM is a pretty bad jury rig using
+  socat to forward the unix socket listened to by kvm to a localhost TCP socket
+  which vncviewer (whatever that points to) connects to. This means that
+  everything tries to listen to (which eventually fails) and connect to (which
+  doesn't) port 5900. Override the port with this.
+  Default: 5900
+

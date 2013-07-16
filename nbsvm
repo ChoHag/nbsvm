@@ -42,7 +42,25 @@ while [ "$1" ]; do
       echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
       sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n $dev-$next
       ;;
-      
+
+    snapshot)
+      set_drive_devs
+      next=${#drive_devs[@]}
+      source=${vg:-vg0}/${source_lv:-nbsvm${class:+-$class}-${gold:-gold}}
+      echo Snapshotting $source to ${snapshot_size:-2G} LV ${vg:-vg0}/$dev-$next for $vm.
+      sudo lvcreate -s /dev/$source -L ${snapshot_size:-2G} -n $dev-$next
+      ;;
+
+    clone)
+      set_drive_devs
+      next=${#drive_devs[@]}
+      lvm_source=${source:-${vg:-vg0}/${source_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
+      echo Cloning ${source:-$lvm_source} to LV ${vg:-vg0}/$dev-$next for $vm.
+      size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix ${source:-$lvm_source})
+      sudo lvcreate ${vg:-vg0} -L ${size}b -n $dev-$next
+      sudo dd if=${source:-/dev/$lvm_source} of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-1048576}"${ddopt:+ $ddopt}
+      ;;
+
     start)
       unset stop
       while [ -n "$1" -a -z "$stop" ]; do
