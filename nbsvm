@@ -36,6 +36,11 @@ while [ "$1" ]; do
   shift
   
   case "$cmd" in
+    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # That'll do
+      echo Idling for $cmd second\(s\)...
+      sleep $cmd
+      ;;
+
     newimg|newimage)
       set_drive_devs
       next=${#drive_devs[@]}
@@ -46,19 +51,19 @@ while [ "$1" ]; do
     snapshot)
       set_drive_devs
       next=${#drive_devs[@]}
-      source=${vg:-vg0}/${source_lv:-nbsvm${class:+-$class}-${gold:-gold}}
+      source=${source:-/dev/${vg:-vg0}/${snapshot_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
       echo Snapshotting $source to ${snapshot_size:-2G} LV ${vg:-vg0}/$dev-$next for $vm.
-      sudo lvcreate -s /dev/$source -L ${snapshot_size:-2G} -n $dev-$next
+      sudo lvcreate -s $source -L ${snapshot_size:-2G} -n $dev-$next
       ;;
 
     clone)
       set_drive_devs
       next=${#drive_devs[@]}
-      lvm_source=${source:-${vg:-vg0}/${source_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
-      echo Cloning ${source:-$lvm_source} to LV ${vg:-vg0}/$dev-$next for $vm.
-      size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix ${source:-$lvm_source})
+      source=${source:-/dev/${vg:-vg0}/${snapshot_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
+      echo Cloning $source to LV ${vg:-vg0}/$dev-$next for $vm.
+      size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix $source)
       sudo lvcreate ${vg:-vg0} -L ${size}b -n $dev-$next
-      sudo dd if=${source:-/dev/$lvm_source} of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-1048576}"${ddopt:+ $ddopt}
+      sudo dd if=$source of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-1048576}" ${ddopt:+$ddopt}
       ;;
 
     start)

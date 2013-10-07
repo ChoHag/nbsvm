@@ -1,11 +1,12 @@
 args
   Interpreted as a quoted array of arguments to append to the kvm command line.
-  Only useful in /etc/nbsvm/*
+  Only useful in /etc/nbsvm/* -- command line arguments are automatically
+  included in the kvm invocation.
   Default: none
 
 bridge
   The network bridge to add the default network tap device (tap-$vm) to.
-  Ignored if not set.
+  Ignored if unset.
   Default: none
 
 bs
@@ -65,9 +66,6 @@ gold
   for a fuller description.
   Default: gold
 
-lvm_source
-  Internal variable used in determining the device to clone.
-
 mem
   Amount of RAM to start the VM with.
   Default: 512M
@@ -88,11 +86,12 @@ network
           -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
           -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
   
-  If the network variable is not set, the tap device is brought up.
+  If the network variable is not set, then nbsvm is using its default network
+  configuration and the tap device is brought up:
           ifconfig tap-$vm up
   
-  Then (and only then), if the bridge variable is set the tap is added to the
-  bridge it specifies:
+  If the network variable is not set _AND_ the bridge variable _IS_ set, then
+  the newly-brought up tap device is added to that bridge:
           brctl addif $bridge tap-vm
 
 next
@@ -101,29 +100,31 @@ next
 size
   Internal variable used in calculating the size of the device to clone.
 
-snapshot_size
-  The amount of space given to a LVM snapshot.
-
-source
-  The volume group and logical volume ($vg/$lv) used to create a clone or
-  snapshot. Clones may alternatively specify a full device path but it must
-  still be an LVM.
-
-  The default is calculated using $vg and $source_lv, or $vg and $gold (and
-  $class) if it's set:
-	  $vg/$source_lv
-          $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
-  
-source_lv
+snapshot_lv
   The full LV name to clone or snapshot. See source for a fuller description.
   Default: nbsvm-$gold or nbsvm-$class-$gold
 
+snapshot_size
+  The amount of space given to an LVM snapshot.
+
+source
+  The path to the source device to clone or snapshot. The path can be the full
+  path to the device or just the volume group and logical volume ($vg/$lv).
+  Only LVM devices are supported (no cloning from a file yet).
+
+  The default is calculated using $vg and $source_lv, or $vg, $class and $gold
+  (default: "gold") if $source_lv isn't set:
+	  $vg/$source_lv
+	    or
+	  $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
+  
 stop
   Internal variable used to work out what to do.
 
 usb
   Full override of USB settings. By default there are USB devices so in order
-  to start a VM without USB this needs to be set to whitespace.
+  to start a VM without USB this needs to be set to whitespace. The null string
+  is regrettably insufficient to disable USB entirely.
   Default: -usb -usbdevice tablet
 
 vg
