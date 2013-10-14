@@ -63,7 +63,7 @@ drive_size
 
 gold
   Used in the filename template of the device to clone or snapshot. See source
-  for a fuller description.
+  for a full description of snapshot_lv, source and gold.
   Default: gold
 
 mem
@@ -101,7 +101,8 @@ size
   Internal variable used in calculating the size of the device to clone.
 
 snapshot_lv
-  The full LV name to clone or snapshot. See source for a fuller description.
+  The full LV name to clone or snapshot. See source for a full description of
+  snapshot_lv, source and gold.
   Default: nbsvm-$gold or nbsvm-$class-$gold
 
 snapshot_size
@@ -112,9 +113,9 @@ source
   path to the device or just the volume group and logical volume ($vg/$lv).
   Only LVM devices are supported (no cloning from a file yet).
 
-  The default is calculated using $vg and $source_lv, or $vg, $class and $gold
-  (default: "gold") if $source_lv isn't set:
-	  $vg/$source_lv
+  The default is calculated using $vg and $snapshot_lv, or $vg, $class and
+  $gold (default: "gold") if $snapshot_lv isn't set:
+	  $vg/$snapshot_lv
 	    or
 	  $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
   
