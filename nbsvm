@@ -63,7 +63,7 @@ while [ "$1" ]; do
       echo Cloning $source to LV ${vg:-vg0}/$dev-$next for $vm.
       size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix $source)
       sudo lvcreate ${vg:-vg0} -L ${size}b -n $dev-$next
-      sudo dd if=$source of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-1048576}" ${ddopt:+$ddopt}
+      sudo dd if=$source of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
       ;;
 
     start)

@@ -12,7 +12,7 @@ bridge
 bs
   A value to be used in place of the default 1MB bs option to dd, used by the
   clone command.
-  Default: 1048576 (1MB)
+  Default: $BLOCKSIZE or 1048576 (1MB)
 
 class
   A global variable which determines what default device names to use, which
