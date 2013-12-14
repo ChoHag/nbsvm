@@ -93,7 +93,7 @@ while [ "$1" ]; do
 	                                                   \
         ${network:-
           -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
-          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
+          -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
         }                                                  \
 	                                                   \
         "${args[@]}" &
@@ -107,11 +107,11 @@ while [ "$1" ]; do
       sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/{qemu,serial0,vnc}.sock
       sudo chmod g+w $drawer/{qemu,serial0,vnc}.sock
       if [ -z "$network" ]; then
-	echo Bringing up tap device tap-$vm
-	sudo ifconfig tap-$vm up
+	echo Bringing up tap device tap-${class:+$class-}$vm
+	sudo ifconfig tap-${class:+$class-}$vm up
 	if [ "$bridge" ]; then
 	  echo Adding tap device to bridge $bridge
-	  sudo brctl addif $bridge tap-$vm
+	  sudo brctl addif $bridge tap-${class:+$class-}$vm
 	fi
       fi
       ;;

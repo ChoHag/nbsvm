@@ -5,7 +5,8 @@ args
   Default: none
 
 bridge
-  The network bridge to add the default network tap device (tap-$vm) to.
+  The network bridge to add the default network tap device (tap-$vm or
+  tap-$class-$vm) to.
   Ignored if unset.
   Default: none
 
@@ -80,19 +81,19 @@ network
   The default network configuration is to have one network device (named net)
   of type $netif. If the mac variable is set it specifies the emulated device's
   mac address. The device is paired on the host with a tap device named
-  tap-$vm.
+  tap-$vm or tap-$class-$vm.
 
   The exact configuration used is:
           -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
-          -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
+          -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
   
   If the network variable is not set, then nbsvm is using its default network
   configuration and the tap device is brought up:
-          ifconfig tap-$vm up
+          ifconfig tap-${class:+$class-}$vm up
   
   If the network variable is not set _AND_ the bridge variable _IS_ set, then
   the newly-brought up tap device is added to that bridge:
-          brctl addif $bridge tap-vm
+          brctl addif $bridge tap-${class:+$class-}$vm
 
 next
   Internal variable used to calculate the next drive id to create.
