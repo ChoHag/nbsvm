@@ -88,7 +88,7 @@ while [ "$1" ]; do
 	name=$dev-$next
 	dest=${vg:-vg0}/$name
 	echo Cloning $source_dev to LV $name for $vm.
-	size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
+	size=$(sudo lvs -o origin_size --units b --noheadings --nosuffix /dev/$source_dev)
 	sudo lvcreate ${vg:-vg0} -L ${size}b -n $name
 	sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
 
