@@ -67,6 +67,10 @@ gold
   for a full description of snapshot_lv, source and gold.
   Default: gold
 
+lv_name
+  The name of the LV which newimage will create.
+  Default: nbsvm-$vm-$next or nbsvm-$class-$vm-$next.
+
 mem
   Amount of RAM to start the VM with.
   Default: 512M

@@ -45,7 +45,7 @@ while [ "$1" ]; do
       set_drive_devs
       next=${#drive_devs[@]}
       echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
-      sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n $dev-$next
+      sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
       ;;
 
     snapshot)
