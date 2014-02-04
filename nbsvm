@@ -17,11 +17,21 @@ if [ -e /etc/nbsvm/"$class".class ]; then
   . /etc/nbsvm/"$class".class
 fi
 
+store=${store:-lvm}
 dev=nbsvm${class:+-$class}-$vm
 drawer=/var/lib/nbsvm${class:+-$class}/$vm
 set_drive_devs() {
-  if [ -e /dev/${vg:-vg0}/$dev-0 ]; then
-    drive_devs=(/dev/${vg:-vg0}/$dev-*)
+  if [[ "$store" == lvm ]]; then
+    prefix=/dev/${vg:-vg0}/$dev
+  elif [[ "$store" == zfs ]]; then
+    prefix=/dev/zvol/${zpool:-tank}/$dev
+  fi
+
+  if [[ -e $prefix-0 ]]; then
+    drive_devs=($prefix-[0-9])
+    if [[ -e $prefix-10 ]]; then
+      drive_devs+=($prefix-[0-9][0-9])
+    fi
   else
     unset drive_devs
   fi
@@ -44,26 +54,51 @@ while [ "$1" ]; do
     newimg|newimage)
       set_drive_devs
       next=${#drive_devs[@]}
-      echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
-      sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
+      if [[ "$store" == lvm ]]; then
+	echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
+	sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
+      elif [[ "$store" == zfs ]]; then
+	echo Creating ${drive_size:-10G} ZFS volume ${zvol_name:-${zpool:-tank}/$dev-$next} for $vm.
+	sudo zfs create -V ${drive_size:-10G} ${zvol_name:-${zpool:-tank}/$dev-$next}
+      fi
       ;;
 
     snapshot)
       set_drive_devs
       next=${#drive_devs[@]}
-      source=${source:-/dev/${vg:-vg0}/${snapshot_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
-      echo Snapshotting $source to ${snapshot_size:-2G} LV ${vg:-vg0}/$dev-$next for $vm.
-      sudo lvcreate -s $source -L ${snapshot_size:-2G} -n $dev-$next
+      if [[ "$store" == lvm ]]; then
+	source_dev=${source:-${vg:-vg0}/${snapshot_name:-$dev-${snapshot_id:-0}}}
+	dest=$dev-${gold:-gold}
+	echo Creating ${snapshot_size:-2G} snapshot $dest of $source_dev.
+	sudo lvcreate -s /dev/$source_dev -L ${snapshot_size:-2G} -n $dest
+
+      elif [[ "$store" == zfs ]]; then
+	source_dev=${source:-${zpool:-tank}/${snapshot_name:-$dev-${snapshot_id:-0}}}
+	dest=$source_dev@${gold:-gold}
+	echo Creating ZFS snapshot $dest for $vm.
+	sudo zfs snapshot $dest
+      fi
       ;;
 
     clone)
       set_drive_devs
       next=${#drive_devs[@]}
-      source=${source:-/dev/${vg:-vg0}/${snapshot_lv:-nbsvm${class:+-$class}-${gold:-gold}}}
-      echo Cloning $source to LV ${vg:-vg0}/$dev-$next for $vm.
-      size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix $source)
-      sudo lvcreate ${vg:-vg0} -L ${size}b -n $dev-$next
-      sudo dd if=$source of=/dev/${vg:-vg0}/$dev-$next bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
+      if [[ "$store" == lvm ]]; then
+	source_dev=${source:-${vg:-vg0}/${snapshot_name:-nbsvm${class:+-$class}-${gold:-gold}}}
+	name=$dev-$next
+	dest=${vg:-vg0}/$name
+	echo Cloning $source_dev to LV $name for $vm.
+	size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
+	sudo lvcreate ${vg:-vg0} -L ${size}b -n $name
+	sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
+
+      elif [[ "$store" == zfs ]]; then
+	source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}@${gold:-gold}}}
+	name=$dev-$next
+	dest=${zpool:-tank}/$name
+	echo Cloning ZFS snapshot $source_dev to $dest
+	sudo zfs clone $source_dev $dest
+      fi
       ;;
 
     start)
@@ -72,7 +107,7 @@ while [ "$1" ]; do
 	if [ ."$1" = ."--" ]; then
 	  stop=1
 	else
-          args=("${args[@]}" "$1")
+          args+=("$1")
 	fi
         shift
       done
@@ -81,7 +116,7 @@ while [ "$1" ]; do
       sudo rm -f $drawer/{qemu,serial0,vnc}.sock
       echo Launching KVM \"$vm\"${class:+, type $class}.
       set_drive_devs
-      sudo kvm --name $vm -m ${mem:-512}                   \
+      sudo ${hypervisor:-kvm} --name $vm -m ${mem:-513}    \
         -serial unix:$drawer/serial0.sock,server,nowait    \
         -monitor unix:$drawer/qemu.sock,server,nowait      \
 	                                                   \

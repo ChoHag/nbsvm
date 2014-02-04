@@ -1,86 +1,215 @@
-args
-  Interpreted as a quoted array of arguments to append to the kvm command line.
-  Only useful in /etc/nbsvm/* -- command line arguments are automatically
-  included in the kvm invocation.
+Common:
+
+class
+  A global variable which determines what default device names to use, which
+  files in /etc/nbsvm to use, etc. If not set and the command being called
+  (specifically, $0) is not nbsvm, then class is assumed to be the command name
+  with the "vm" suffix stripped.
+
+  Default:
+    none unless the command called is not nbsvm, in which case it is that
+    command with the 'vm' suffix stripped.
+
+
+debug
+  Flag to print debugging output (set -x)
+
   Default: none
 
-bridge
-  The network bridge to add the default network tap device (tap-$vm or
-  tap-$class-$vm) to.
-  Ignored if unset.
+
+drawer
+  Where kvm keeps its socks.
+
+  Default: /var/lib/nbsvm/$vm or /var/lib/nbsvm-class/$vm
+
+
+vnc_port
+  The method used to connect a VNC client to KVM is a pretty bad jury rig using
+  socat to forward the unix socket listened to by kvm to a localhost TCP socket
+  which vncviewer (whatever that points to) connects to. This means that
+  everything tries to listen to (which eventually fails) and connect to (which
+  doesn't) port 5900. Override the port with this.
+
+  Default: 5900
+
+
+Execution:
+
+args
+  An array of arguments to append to the kvm command line. Any arguments to the
+  start command up to but not including an optional -- are appended to $args
+  before using it to run kvm.
+
   Default: none
+
+
+display
+  Options controlling how to run the display.
+
+  Default: -display vnc=unix:$drawer/vnc.sock
+
+
+hypervisor
+  The kvm binary to call.
+
+  Default: kvm
+
+
+mem
+  Amount of RAM to start the VM with in MB.
+
+  Default: 512M
+
+
+usb
+  Full override of USB settings. By default there are USB devices so in order
+  to start a VM without USB this needs to be set to whitespace. The null string
+  is regrettably insufficient to disable USB entirely.
+  Default: -usb -usbdevice tablet
+
+
+
+Storage:
 
 bs
   A value to be used in place of the default 1MB bs option to dd, used by the
   clone command.
+
   Default: $BLOCKSIZE or 1048576 (1MB)
 
-class
-  A global variable which determines what default device names to use, which
-  files in /etc/nbsvm to use, etc.
-  Default:
-    none unless the command called is not nbsvm, in which case it is that
-    command with the 'vm' suffix (which is not necessary) stripped.
-
-cmd
-  Internal variable used to keep track of which command is being run.
-
-count
-  Internal variable which I ought to rename.
 
 ddopt
   Extra options included verbatim in the dd command (without quoting).
+
   Default: none
 
-debug
-  Flag to print debugging output (essntially the -x flag).
-  Default: none
-
-dev
-  Internal variable naming the VM's hard drives.
-
-display
-  Options controlling how to run the display.
-  Default: -display vnc=unix:$drawer/vnc.sock
-
-drawer
-  Where kvm keeps its socks.
-  Default: /var/lib/nbsvm/$vm or /var/lib/nbsvm-class/$vm
-
-drive_devs
-  Internal variable listing all of the VM's hard drives.
 
 drive_if
   The interface type to use to connect the default drives.
+
   Default: virtio
+
 
 drives
   If set, overrides any attempt by lvm to calculate drives and drive options.
+
   Default: none
+
 
 drive_size
   Size (passed to lvcreate -L) of new drives.
+
   Default: 10G
 
+
 gold
-  Used in the filename template of the device to clone or snapshot. See source
-  for a full description of snapshot_lv, source and gold.
+  Used to construct the name of the snapshot to create, or the snapshot to
+  clone to a new device. See $source for a complete description.
+
   Default: gold
 
+
 lv_name
-  The name of the LV which newimage will create.
+  The name of the LV which newimage will create on the LVM backend. Not used by
+  clone or snapshot. $next is a number calculated by counting the existing
+  drives, starting at 0.
+
   Default: nbsvm-$vm-$next or nbsvm-$class-$vm-$next.
 
-mem
-  Amount of RAM to start the VM with.
-  Default: 512M
+
+store
+  The type of storage backend to use. "lvm" or "zfs".
+
+  Default: lvm
+
+
+snapshot_id
+  The numeric id of the drive to snapshot, See $source for a complete
+  description.
+
+  Default: 0
+
+
+snapshot_name
+  The filename of the device to snapshot to or from. See $source for a complete
+  description.
+
+  Default (lvm snapshot): nbsvm-$vm-0 or nbsvm-$class-$vm-0
+
+  Default (lvm clone): nbsvm-$gold or nbsvm-$class-$gold
+
+  Default (zfs snapshot): nbsvm-$vm-0 or nbsvm-$class-$vm-0
+
+  Default (zfs clone): nbsvm@$gold or nbsvm-$class@$gold
+
+
+snapshot_size
+  The size of the COW space to create an LVM snapshot in.
+
+  Default: 2G
+
+
+source
+  The full path to the device to snapshot (or snapshot to clone) without the
+  "/dev/" or "/dev/zvol/" prefix. When creating a snapshot, "-$gold" (lvm) or
+  "@gold" (zfs) is appended. When cloning a snapshot it must be included.
+
+  Ordinarily the source is calculated from $vg or $zpool and $snapshot_name,
+  which differs depending on whether a snapshot is being made or being used.
+  When creating a snapshot, snapshot_name is $prefix-$vm-$id. When cloning a
+  snapshot it is $prefix-$gold (or $prefix@$gold on zfs).
+
+    $prefix is nbsvm or nbsvm-$class.
+    $id is $snapshot_id or "0".
+
+  Examples:
+
+  Create the snapshot ocean/master-gold (zfs: ocean/master@gold)
+  $ source=ocean/master nbsvm foo snapshot
+
+  Create a backup of disc 3 on bar
+  $ snapshot_id=3 gold=backup nbsvm bar snapshot
+  Alternatively:
+  $ source=vg0/nbsvm-bar-3 gold=backup nbsvm bar snapshot
+
+  Clone master-gold (zfs: master@gold) in whatever zpool foo currently uses:
+  $ snapshot_name=master nbsvm foo clone
+
+  Clone nbsvm-master (zfs: nbsvm@master) in whatever zpool foo currently uses:
+  $ gold=master nbsvm foo clone
+
+
+vg
+  Where to create and look for VM image devices on LVM.
+
+  Default: vg0
+
+
+zpool
+  Where to create and look for VM image devices on ZFS.
+
+  Default: tank
+
+
+
+Networking:
+
+bridge
+  The network bridge to add the default network tap device (tap-$vm or
+  tap-$class-$vm) to using "brctl addif $bridge". If $bridge is not set, or
+  $network is, this action is not performed.
+
+  Default: none
+
 
 net_if
   The network device type to emulate. See network for a fuller description.
+
   Default: virtio-net-pci
 
+
 network
-  Override the network device options.
+  Override all network settings.
   
   The default network configuration is to have one network device (named net)
   of type $netif. If the mac variable is set it specifies the emulated device's
@@ -98,54 +227,3 @@ network
   If the network variable is not set _AND_ the bridge variable _IS_ set, then
   the newly-brought up tap device is added to that bridge:
           brctl addif $bridge tap-${class:+$class-}$vm
-
-next
-  Internal variable used to calculate the next drive id to create.
-
-size
-  Internal variable used in calculating the size of the device to clone.
-
-snapshot_lv
-  The full LV name to clone or snapshot. See source for a full description of
-  snapshot_lv, source and gold.
-  Default: nbsvm-$gold or nbsvm-$class-$gold
-
-snapshot_size
-  The amount of space given to an LVM snapshot.
-
-source
-  The path to the source device to clone or snapshot. The path can be the full
-  path to the device or just the volume group and logical volume ($vg/$lv).
-  Only LVM devices are supported (no cloning from a file yet).
-
-  The default is calculated using $vg and $snapshot_lv, or $vg, $class and
-  $gold (default: "gold") if $snapshot_lv isn't set:
-	  $vg/$snapshot_lv
-	    or
-	  $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
-  
-stop
-  Internal variable used to work out what to do.
-
-usb
-  Full override of USB settings. By default there are USB devices so in order
-  to start a VM without USB this needs to be set to whitespace. The null string
-  is regrettably insufficient to disable USB entirely.
-  Default: -usb -usbdevice tablet
-
-vg
-  Where to create and look for VM drives.
-  Default: vg0
-
-vm
-  Internal variable used to track which VM to deal with. Set from the first
-  argument to nbsvm.
-
-vnc_port
-  The method used to connect a VNC client to KVM is a pretty bad jury rig using
-  socat to forward the unix socket listened to by kvm to a localhost TCP socket
-  which vncviewer (whatever that points to) connects to. This means that
-  everything tries to listen to (which eventually fails) and connect to (which
-  doesn't) port 5900. Override the port with this.
-  Default: 5900
-

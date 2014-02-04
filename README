@@ -16,287 +16,233 @@ Everything else is documentation.
 
 
 
-Usage
------
+Basic Usage
+-----------
 
 
-Create a hard drive image which the foo VM will use by default:
+nbsvm doesn't manage VMs in any real sense of the word. It is a helper which
+starts KVM in a consistent manner, attaching the hard drive images which
+already exist in /dev whose name match that of the VM being started. It also
+includes utilities to create devices which will match a named VM, either blank
+or as a copy of an existing device or file, and locate the unix socket files
+attached to a running VM.
+
+KVM is started with a fairly conservative set of options:
+  * 512 MB RAM
+  * A VNC display, serial port and qemu monitor port.
+  * USB and a tablet pointing device.
+  * A network device connected to a tap.
+  * Any drive images whose path prefix matched the VM's name.
+
+The start command can take arguments which are appended to the kvm command
+verbatim. nbsvm commands can be chained, so that:
+
+  $ nbsvm foo newimg newimg newimg start -cdrom install.iso
+
+will create 3 new images for foo then start it with a cdrom. Commands can be
+included after the start command by terminating the kvm arguments with "--":
+
+  $ nbsvm foo newimg start -cdrom installer -- vnc
+
+
+Create a hard drive image named for the foo VM.
 
 $ nbsvm foo newimg
 
 
-Create a new drive for foo as a snapshot of an existing drive.
-
-$ nbsvm foo snapshot
-
-
-Create a new drive for foo as a clone of another device with dd. If you don't
-set the bs variable (default: 1048576 == 1MB) it will be unbearably slow.
-
-$ bs=$((1048576*10)) nbsvm foo clone
-
-This trick is also handy if you have the PID of the dd process nbsvm spawns:
-
-$ while kill -USR1 $DD_PID; do sleep 2; done
-
-
-Start a VM with its default settings:
+Start a VM foo:
 
 $ nbsvm foo start
 
 
-Stop a VM:
+Stop it:
 
 $ nbsvm foo stop
 
 
-Stop a VM nicely:
+Stop it nicely:
 
 $ nbsvm foo shutdown
 
 
-Connect to the serial port of a VM:
 
-$ nbsvm foo console
+Connect to a running VM:
 
+  Serial port:
 
-Connect to the Qemu monitor port:
+  $ nbsvm foo console
 
-$ nbsvm foo monitor
+  Qemu monitor port:
 
+  $ nbsvm foo monitor
 
-Connect to the display with VNC:
+  VNC display:
 
-$ nbsvm foo vnc
+  $ vnc_port=12345 nbsvm foo vnc
 
-
-nbsvm uses socat to expose the unix socket KVM provides on a TCP port, which it
-then connects to with VNC. Even though it is only used internally, you cannot
-connect to more than one VM on the default port:
-$ vnc_port=4001 nbsvm foo vnc
-$ vnc_port=4002 nbsvm bar vnc
+    ** vnc_port must be an unused tcp port.
 
 
-And the most minimal amount of magic:
 
-KVM starts with a fairly conservative set of options:
-  * 512 MB RAM
-  * A display exportable over VNC.
-  * USB and a tablet pointing device.
-  * A network device connected to a tap.
+Clones and snapshots:
 
-And, of course, the serial ports and the drives.
+LVM and ZFS are selected by setting the $store variable (default: lvm). Each
+has a different concept of snapshots and clones, which nbsvm follows:
 
-The drives are created using LVM in /dev/<vg>/nbsvm-<vm>-n, with n starting
-from 0. All drives which match the shell pattern nbsvm-$VM-* are included when
-the VM is started. Note that if a class is in use, it is appended to the nbsvm
-prefix and the pattern used is nbsvm-$CLASS-$VM-*
+  LVM (store=lvm):
 
-Arguments can be added to the kvm command by including them on the command line
-immesiately after the 'start' word when the VM is launched. If command chaining
-is in use, a double-dash (--) terminates the list of options which are passed
-to kvm.
+    Create a new image as a COW snapshot of the existing device "master-image":
 
-All options to kvm (apart from the serial and monitor ports) can be overridden
-with environment variables consisting of the argument string to include in
-their place.  Ordered here by how interesting they are:
+    $ gold=master-image nbsvm foo snapshot
 
-  mem:
-    Amount of RAM in MB.
+    Create a normal new device and copy "slow-master" using dd:
 
-    Default: 512
+    $ gold=slow-master nbsvm foo clone
+
+    This trick is also handy if you have the PID of the dd process nbsvm spawns:
+
+    $ while kill -USR1 $DD_PID; do sleep 2; done
 
 
-  drives:
-    The drives to attach to the VM.
+  ZFS (store=zfs):
 
-    Default: -drive if=virtio,file=/dev/...<vm>-<n> (A single string listing
-      all drives from 0 up)
+    Create a snapshot "foo-0@backup" of foo's first image "foo-0":
 
+    $ snapshot_name=backup nbsvm foo snapshot
 
-    drive_if:
-      The interface to connect the drive to (the virtio in the above default in
-      fact comes from this variable).
+    Create a new image for foo as a clone of "bar@master":
 
-      Default: virtio
+    $ snapshot_vm=bar snapshot_name=master nbsvm foo clone
 
-
-  display:
-    How to run the display.
-
-    Default: -display vnc=unix:$drawer/vnc.sock
-      ($drawer is the directory kvm keeps its socks in: /var/lib/nbsvm/<vm>)
+    I don't really like the ZFS implementation and it is subject to change at
+    my whim. Suggestions welcome.
 
 
-    vnc_port:
-      The TCP port to pretend VNC is listening on internally. Has no real
-      bearing on anything whatsoever, except you can't use the same port twice
-      and socat doesn't quit when the vnc viewer does. I should fix that.
+nbsvm doesn't make any attempt to rename or delete images, snapshots or clones.
 
-      Default: 5900
 
+
+Magic usage
+-----------
+
+Magic is accessed using environment variables, which override the defaults used
+to launch kvm and locate/name devices. There is a full list of these available
+in the Variables file. Some common uses are listed here.
+
+The hypervisor binary, amount of memory, usb devices and display are overridden
+by the $hypervisor, $mem, $usb and $display variables, respectively:
+
+  hypervisor: Default: "kvm".
+
+  mem:        Default: "512".
+
+  display:    Default: "-display vnc=unix:$drawer/vnc.sock".
+
+  usb:        Default: "-usb -usbdevice tablet".
+    ** Disable usb entirely with "usb=' '". Leaving it unset, or set to "",
+       will not work.
+
+
+Other device defaults are a bit more involved:
+
+
+Storage:
+
+Variable "drives". Constructed on the fly by looking in /dev/$vg or
+/dev/zvol/$zpool for any files matching the pattern nbsvm-$vm-* (or
+nbsvm-$class-$vm-*) and including them in a list of "-drive" arguments.
+
+"virtio" can be changed by setting $drive_if.
+
+* Snapshots and clones:
+
+newimage and clone (and with the lvm backend, snapshot) create a new hard drive
+image for a named VM. The new device is named nbsvm-$vm-$id (if $class is set,
+nbsvm-$class-$vm-$id) where $id is obtained by counting the existing devices,
+with the first device numbered 0.
+
+  LVM devices are created in the volume group named by $vg, or "vg0".
+  ZFS devices are created under $zpool, or "tank".
+
+newimage, and snapshot on lvm, create drives sized $drive_size (default: 10G).
+
+Mostly, only $gold (default: gold) should be set to determine which device to
+clone.
+
+  LVM will make a clone or snapshot of "nbsvm-$gold" or "nbsvm-$class-$gold".
+  ZFS snapshot will create a snapshot named "nbsvm-$vm-0@snapshot" or
+  "nbsvm-$class-$vm-0@snapshot").
+  ZFS clone will create a clone of "nbsvm@$gold" or "nbsvm-$class@$gold".
+
+ZFS support is rather messy and will hopefully be improved soon.
+
+  The device can be changed with these variables:
 
   source:
-    The full path to the device to clone or take a snapshot of. Only LVM
-    devices can be cloned for now as I am too lazy to work out another method
-    to calculate the size of the device.
+    The full VG and LV name, or ZFS volume name, to clone or snapshot.
 
-    Default: $vg/$snapshot_lv
+    Default: $vg/$snapshot_source or $zpool/$snapshot_source
 
+    $snapshot_source depends on the storage backend ($store) and command:
 
-    gold:
-      The name of the VM and its drive to create a snapshot or clone of. The
-      prefix nbsvm- (or nbsvm-$CLASS-) is added to determine the device name
-      within the volume group. The first drive is 0 so to clone the VM foo
-      which has a single drive this would be "foo-0"
+    LVM snapshot default: $vg/nbsvm-$gold or $vg/nbsvm-$class-$gold
+    LVM clone uses the same scheme as LVM snapshot.
+    ZFS snapshot default: $zpool/nbsvm-$gold or $zpool/nbsvm-$class-$gold
+    ZFS clone default:    $zpool/nbsvm@$gold or $zpool/nbsvm-$class@$gold
 
-      Default: gold
 
+Networking:
 
-    snapshot_lv:
-      The source LV to clone or snapshot. The VG must not be included, use the vg
-      or source variable.
+The default network setup is to create a single virtual ethernet device
+attached to a tap device named "tap-$vm" on the host using this concoction:
 
-      Default: nbsvm-$gold or nbsvm-$class-$cold
+  -device $net_if,netdev=net -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
 
+The default $net_if is "virtio-net-pci", the guest's MAC address can be set
+with $mac, which appends ",mac=$mac" to the -device option. The entire thing
+can be overridden by setting $network.
 
-  bs:
-    The value to pass to the bs argument of the dd command when cloning, ie.
-    the size in bytes to read/write at a time.
 
-    Default: 1048576 (1MB)
+If $bridge is set (it has no default) then the "tap-$vm" device on the host is
+added to the bridge by running "brctl addif $bridge tap-$vm". If the network
+settings are changed by setting $network, this is not done.
 
 
-  ddargs:
-    Any other arguments to include in the dd process of the clone command.
+Saved settings and Classes:
 
-    Default: none
+Because remembering which options go with which VMs is tedious, nbsvm first
+parses files in /etc/nbsvm named after the vm being started. The files are
+simply sourced into nbsvm's bash environment. Additional files can be parsed by
+setting the $class variable, which also adjusts the names of image which are
+used.
 
+The files are sourced in the following order:
 
-  usb:
-    USB options. To turn USB off, this must be set to something irrelevant,
-    like whitespace:
-      $ usb=' ' nbsvm foo start
+  /etc/nbsvm/default.class
+  /etc/nbsvm/$class.class (if $class is set)
+  /etc/nbsvm/$vm.vm (or $class-$vm.vm if $class is set)
 
-    Default: -usb -usbdevice tablet
+Finally, $class can be set by creating a link to nbsvm named ${class}vm and
+calling that instead of calling the nbsvm binary directly. If the $class
+variable is set, it is used instead of the class name extracted from the
+command name.
 
+To set variables in the class or vm files which can still be overridden at
+runtime, write them using bash's replacement syntax like so:
 
-  network:
-    Networking options. I've not thought about this very much but I think the
-    way it works is about right. Basically it will create a tap device on the
-    host connected to a plain old ethernet card on the VM, leaving the rest up
-    to your imagination.
+mem=${mem:-2048} # Can be overridden at runtime
+net_if=e1000     # Is forced to e1000
 
-    Default: -device virtio-net-pci,netdev=net -netdev tap,id=net,ifname=tap-$vm,script=no,downscript=no
+The $args variable is also available in the saved settings files. This is an
+*array*, not a plain string, of arguments to append to the kvm command. It is
+set simply enough:
 
+args=(-cdrom /srv/static-boot.iso -boot d)
 
-  net_if:
-    As with drive_if, this is where the virtio-net-pci above comes from.
+A vm file can append to arguments set in the class file[s]:
 
-    Default: virtio-net-pci
+args+=(-soundhw all)
 
-
-  mac:
-    If supplied, the default network device is given the supplied mac address
-    (the string ',mac=$mac' is appended to the -device option).
-
-    Default: none
-
-
-  bridge:
-    As a convenience, if this variable is set it will add the KVM's tap device
-    to the named bridge by doing this (exactly this, nothing more or less).
-      # brctl addif $bridge tap-$vm
-
-    Default: none
-
-
-  args:
-    Arguments to append to the kvm command in /etc/nbsvm/*. This variable is
-    parsed as a bash array and thus is useless on the command line. Arguments
-    can be appended to the kvm command used to start the vm by simply including
-    them after the start word, terminated with a double-dash (--) or EOL.
-
-    Default: none
-
-
-
-Examples
---------
-
-
-Start a VM without any USB:
-
-$ usb=' ' nbsvm foo start
-
-
-More RAM:
-
-$ mem=2048 nbsvm foo start
-
-
-Emulate real hardware rather than using virtio:
-
-$ net_if=e1000 drive_if=scsi nbsvm foo start
-
-
-Start a VM without any of its drives:
-
-$ drives=' ' nbsvm foo start
-
-
-Start a VM with custom options:
-
-$ nbsvm foo start -soundhw sb16
-$ nbsvm foo start -cdrom ~/installer.iso -boot d
-
-
-Extras
-------
-
-
-* Chaining
-
-
-Commands can be chained. Options to the start command *must* be terminated with --:
-
-
-Create a(nother) disc for the foo VM, then start it.
-
-$ nbsvm foo newimg start
-
-
-As above, but open the Qemu monitor after the VM is started. Note that the --
-must be included:
-
-$ nbsvm foo newimg start -- monitor
-
-
-Restart a VM
-
-$ nbsvm foo stop start
-
-
-
-* Classes
-
-
-If the class variable is set, this determines which file
-(/etc/nbsvm/$class.class) is sourced to set the default values for any action
-taken within that class. The class variable can either be set in the
-environment or by linking the nbsvm script to symlink in $PATH called
-${class}vm, and then calling this script. The environment variable will take
-precedence over the script name.
-
-This is where the one piece of bullshit I've located comes in because
-overriding variables is done in the wrong order. This is my
-/etc/nbsvm/win.class:
-
-mem=${mem:-2048}
-net_if=e1000
-drive_if=ide
-drive_size=20G
-
-With thie setup, net_if, drive_if and drive_size cannot be changed at runtime.
-The only way to do it is to put the override in /etc/nbsvm/<class>-<vm>.vm. mem
-will continue to work as normal.
+Arguments passed to the start command are appended to the $args array which is
+then used in the kvm command. I don't know I'd have command-line arguments
+replace $args or even if I'd want to. Patches welcome.
