@@ -84,7 +84,7 @@ while [ "$1" ]; do
       set_drive_devs
       next=${#drive_devs[@]}
       if [[ "$store" == lvm ]]; then
-	source_dev=${source:-${vg:-vg0}/${snapshot_name:-nbsvm${class:+-$class}-${gold:-gold}}}
+	source_dev=${source:-${vg:-vg0}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}-${gold:-gold}}}
 	name=$dev-$next
 	dest=${vg:-vg0}/$name
 	echo Cloning $source_dev to LV $name for $vm.
@@ -96,7 +96,7 @@ while [ "$1" ]; do
 	sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
 
       elif [[ "$store" == zfs ]]; then
-	source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}@${gold:-gold}}}
+	source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
 	name=$dev-$next
 	dest=${zpool:-tank}/$name
 	echo Cloning ZFS snapshot $source_dev to $dest
