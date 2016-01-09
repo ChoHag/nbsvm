@@ -136,15 +136,19 @@ while [ "$1" ]; do
         fi
         shift
       done
-      if [ ${#runargs} != 0 -a "${runargs[0]}" = "_" ]; then
+      if [ ${#runargs[@]} -ne 0 -a "${runargs[0]}" = "_" ]; then
           # Replace _ with $args if it's the first ...
           unset runargs[0]
           runargs=("${args[@]}" "${runargs[@]}")
-      elif [ ${#runargs} != 0 -a "${runargs[$((${#runargs[@]}-1))}]}" = "_" ]; then
-          # ... or last cli argument
-          unset runargs[$((${#runargs[@]}-1))]
-          runargs+=("${args[@]")
-      elif [ ${#runargs} = 0 ]; then
+      elif [ ${#runargs[@]} -ne 0 ]; then
+	  _last=$((${#runargs[@]}-1))
+	  # (nested in case $_last is invalid)
+	  if [ "${runargs[$_last]}" = "_" ]; then
+              # ... or last cli argument
+              unset runargs[$((${#runargs[@]}-1))]
+              runargs+=("${args[@]}")
+	  fi
+      elif [ ${#runargs[@]} -eq 0 ]; then
           # Use $args verbatim if no cli arguments are present. Can't
           # override $args with nothing, but "-k en-us" or
           # "-enable-kvm" can be used as a no-op.
