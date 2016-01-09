@@ -106,15 +106,29 @@ while [ "$1" ]; do
 
     start)
       # Find extra arguments
-      unset stop
+      unset stop runargs
       while [ -n "$1" -a -z "$stop" ]; do
-	if [ ."$1" = ."--" ]; then
-	  stop=1
-	else
-          args+=("$1")
-	fi
+        if [ ."$1" = ."--" ]; then
+          stop=1
+        else
+          runargs+=("$1")
+        fi
         shift
       done
+      if [ ${#runargs} != 0 -a "${runargs[0]}" = "_" ]; then
+          # Replace _ with $args if it's the first ...
+          unset runargs[0]
+          runargs=("${args[@]}" "${runargs[@]}")
+      elif [ ${#runargs} != 0 -a "${runargs[$((${#runargs[@]}-1))}]}" = "_" ]; then
+          # ... or last cli argument
+          unset runargs[$((${#runargs[@]}-1))]
+          runargs+=("${args[@]")
+      elif [ ${#runargs} = 0 ]; then
+          # Use $args verbatim if no cli arguments are present. Can't
+          # override $args with nothing, but "-k en-us" or
+          # "-enable-kvm" can be used as a no-op.
+          runargs=("${args[@]}")
+      fi
 
       # Prepare filesystem
       sudo mkdir -p $drawer
@@ -145,7 +159,7 @@ while [ "$1" ]; do
           -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
         }                                                  \
 	                                                   \
-        "${args[@]}" &
+        "${runargs[@]}" &
 
       # Footle socks (they're not gloves)
       echo -n Waiting for clean socks...
