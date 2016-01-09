@@ -44,7 +44,7 @@ fi
 while [ "$1" ]; do
   cmd=$1
   shift
-  
+
   case "$cmd" in
     [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # That'll do
       echo Idling for $cmd second\(s\)...
@@ -55,11 +55,11 @@ while [ "$1" ]; do
       set_drive_devs
       next=${#drive_devs[@]}
       if [[ "$store" == lvm ]]; then
-	echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
-	sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
+        echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
+        sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
       elif [[ "$store" == zfs ]]; then
-	echo Creating ${drive_size:-10G} ZFS volume ${zvol_name:-${zpool:-tank}/$dev-$next} for $vm.
-	sudo zfs create -V ${drive_size:-10G} ${zvol_name:-${zpool:-tank}/$dev-$next}
+        echo Creating ${drive_size:-10G} ZFS volume ${zvol_name:-${zpool:-tank}/$dev-$next} for $vm.
+        sudo zfs create -V ${drive_size:-10G} ${zvol_name:-${zpool:-tank}/$dev-$next}
       fi
       ;;
 
@@ -67,16 +67,16 @@ while [ "$1" ]; do
       set_drive_devs
       next=${#drive_devs[@]}
       if [[ "$store" == lvm ]]; then
-	source_dev=${source:-${vg:-vg0}/${snapshot_name:-$dev-${snapshot_id:-0}}}
-	dest=$dev-${gold:-gold}
-	echo Creating ${snapshot_size:-2G} snapshot $dest of $source_dev.
-	sudo lvcreate -s /dev/$source_dev -L ${snapshot_size:-2G} -n $dest
+        source_dev=${source:-${vg:-vg0}/${snapshot_name:-$dev-${snapshot_id:-0}}}
+        dest=$dev-${gold:-gold}
+        echo Creating ${snapshot_size:-2G} snapshot $dest of $source_dev.
+        sudo lvcreate -s /dev/$source_dev -L ${snapshot_size:-2G} -n $dest
 
       elif [[ "$store" == zfs ]]; then
-	source_dev=${source:-${zpool:-tank}/${snapshot_name:-$dev-${snapshot_id:-0}}}
-	dest=$source_dev@${gold:-gold}
-	echo Creating ZFS snapshot $dest for $vm.
-	sudo zfs snapshot $dest
+        source_dev=${source:-${zpool:-tank}/${snapshot_name:-$dev-${snapshot_id:-0}}}
+        dest=$source_dev@${gold:-gold}
+        echo Creating ZFS snapshot $dest for $vm.
+        sudo zfs snapshot $dest
       fi
       ;;
 
@@ -84,23 +84,23 @@ while [ "$1" ]; do
       set_drive_devs
       next=${#drive_devs[@]}
       if [[ "$store" == lvm ]]; then
-	source_dev=${source:-${vg:-vg0}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}-${gold:-gold}}}
-	name=$dev-$next
-	dest=${vg:-vg0}/$name
-	echo Cloning $source_dev to LV $name for $vm.
-	size=$(sudo lvs -o origin_size --units b --noheadings --nosuffix /dev/$source_dev)
-	if [[ $size -eq 0 ]]; then
-	  size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
-	fi
-	sudo lvcreate ${vg:-vg0} -L ${size}b -n $name
-	sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
+        source_dev=${source:-${vg:-vg0}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}-${gold:-gold}}}
+        name=$dev-$next
+        dest=${vg:-vg0}/$name
+        echo Cloning $source_dev to LV $name for $vm.
+        size=$(sudo lvs -o origin_size --units b --noheadings --nosuffix /dev/$source_dev)
+        if [[ $size -eq 0 ]]; then
+          size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
+        fi
+        sudo lvcreate ${vg:-vg0} -L ${size}b -n $name
+        sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
 
       elif [[ "$store" == zfs ]]; then
-	source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
-	name=$dev-$next
-	dest=${zpool:-tank}/$name
-	echo Cloning ZFS snapshot $source_dev to $dest
-	sudo zfs clone $source_dev $dest
+        source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
+        name=$dev-$next
+        dest=${zpool:-tank}/$name
+        echo Cloning ZFS snapshot $source_dev to $dest
+        sudo zfs clone $source_dev $dest
       fi
       ;;
 
@@ -134,11 +134,11 @@ while [ "$1" ]; do
       sudo mkdir -p $drawer
       echo Laundering old socks.
       for sock in {qemu,serial0,vnc}.sock; do
-	# Move socks to a backup file to enable recovery when
-	# attempting to start a VM which is already running.
-	if [ -e $drawer/$sock ]; then
-	    sudo mv -f $drawer/$sock $drawer/$sock~
-	fi
+        # Move socks to a backup file to enable recovery when
+        # attempting to start a VM which is already running.
+        if [ -e $drawer/$sock ]; then
+            sudo mv -f $drawer/$sock $drawer/$sock~
+        fi
       done
 
       # Launch binary
@@ -147,54 +147,54 @@ while [ "$1" ]; do
       sudo ${hypervisor:-kvm} --name $vm -m ${mem:-512}    \
         -serial unix:$drawer/serial0.sock,server,nowait    \
         -monitor unix:$drawer/qemu.sock,server,nowait      \
-	                                                   \
+                                                           \
         ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
-	                                                   \
+                                                           \
         ${display:--display vnc=unix:$drawer/vnc.sock}     \
-	                                                   \
+                                                           \
         ${usb:--usb -usbdevice tablet}                     \
-	                                                   \
+                                                           \
         ${network:-
           -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
           -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
         }                                                  \
-	                                                   \
+                                                           \
         "${runargs[@]}" &
 
       # Footle socks (they're not gloves)
       echo -n Waiting for clean socks...
       count=0
       take_sock() {
-	while ! ls "$1" >/dev/null 2>&1; do
+        while ! ls "$1" >/dev/null 2>&1; do
           ((count+=1))
-	  if [ x"${count%[50]}" != x"$count" ]; then echo -n .; fi
-	  if [ $count -ge 60 ]; then
-	      echo Giving up waiting for "$1" >&2
-	      return # Don't return an error even though it is
-	  fi
+          if [ x"${count%[50]}" != x"$count" ]; then echo -n .; fi
+          if [ $count -ge 60 ]; then
+              echo Giving up waiting for "$1" >&2
+              return # Don't return an error even though it is
+          fi
           sleep 1
-	done
-	sudo chgrp ${group:-$(getent group $(id -g) | cut -d: -f1)} "$1"
-	sudo chmod g+w "$1"
+        done
+        sudo chgrp ${group:-$(getent group $(id -g) | cut -d: -f1)} "$1"
+        sudo chmod g+w "$1"
       }
       take_sock $drawer/qemu.sock
       take_sock $drawer/serial0.sock
       if [[ ! -v display || -v vncsock ]]; then
-	  take_sock $drawer/vnc.sock
+          take_sock $drawer/vnc.sock
       fi
       echo
 
       # Bring up network
       if [ -z "$network" ]; then
-	echo Bringing up tap device tap-${class:+$class-}$vm
-	sudo ifconfig tap-${class:+$class-}$vm up
-	if [ "$bridge" ]; then
-	  echo Adding tap device to bridge $bridge
-	  sudo brctl addif $bridge tap-${class:+$class-}$vm
-	fi
+        echo Bringing up tap device tap-${class:+$class-}$vm
+        sudo ifconfig tap-${class:+$class-}$vm up
+        if [ "$bridge" ]; then
+          echo Adding tap device to bridge $bridge
+          sudo brctl addif $bridge tap-${class:+$class-}$vm
+        fi
       fi
       ;;
-  
+
     console|serial|serial0)
       echo For reasons unknown, ^O is the panic button.
       socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/serial0.sock
@@ -204,16 +204,16 @@ while [ "$1" ]; do
       echo For reasons unknown, ^O is the panic button.
       socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/qemu.sock
       ;;
-  
+
     vnc)
       socat TCP-LISTEN:${vnc_port:-5900},reuseaddr,fork UNIX-CLIENT:$drawer/vnc.sock &
       vncviewer localhost:${vnc_port:-5900}
       ;;
-  
+
     stop|quit)
       echo quit | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
-  
+
     shutdown)
       echo system_powerdown | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
