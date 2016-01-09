@@ -105,6 +105,7 @@ while [ "$1" ]; do
       ;;
 
     start)
+      # Find extra arguments
       unset stop
       while [ -n "$1" -a -z "$stop" ]; do
 	if [ ."$1" = ."--" ]; then
@@ -114,9 +115,19 @@ while [ "$1" ]; do
 	fi
         shift
       done
+
+      # Prepare filesystem
       sudo mkdir -p $drawer
       echo Laundering old socks.
-      sudo rm -f $drawer/{qemu,serial0,vnc}.sock
+      for sock in {qemu,serial0,vnc}.sock; do
+	# Move socks to a backup file to enable recovery when
+	# attempting to start a VM which is already running.
+	if [ -e $drawer/$sock ]; then
+	    sudo mv -f $drawer/$sock $drawer/$sock~
+	fi
+      done
+
+      # Launch binary
       echo Launching KVM \"$vm\"${class:+, type $class}.
       set_drive_devs
       sudo ${hypervisor:-kvm} --name $vm -m ${mem:-512}    \
@@ -135,15 +146,31 @@ while [ "$1" ]; do
         }                                                  \
 	                                                   \
         "${args[@]}" &
+
+      # Footle socks (they're not gloves)
       echo -n Waiting for clean socks...
       count=0
-      while ! ls $drawer/{qemu,serial0,vnc}.sock >/dev/null 2>&1; do
-	((count+=1)); if [ $count = 5 ]; then echo -n .; count=0; fi
-	sleep 1
-      done
+      take_sock() {
+	while ! ls "$1" >/dev/null 2>&1; do
+          ((count+=1))
+	  if [ x"${count%[50]}" != x"$count" ]; then echo -n .; fi
+	  if [ $count -ge 60 ]; then
+	      echo Giving up waiting for "$1" >&2
+	      return # Don't return an error even though it is
+	  fi
+          sleep 1
+	done
+	sudo chgrp ${group:-$(getent group $(id -g) | cut -d: -f1)} "$1"
+	sudo chmod g+w "$1"
+      }
+      take_sock $drawer/qemu.sock
+      take_sock $drawer/serial0.sock
+      if [[ ! -v display || -v vncsock ]]; then
+	  take_sock $drawer/vnc.sock
+      fi
       echo
-      sudo chgrp $(getent group `id -g` | cut -d: -f1) $drawer/{qemu,serial0,vnc}.sock
-      sudo chmod g+w $drawer/{qemu,serial0,vnc}.sock
+
+      # Bring up network
       if [ -z "$network" ]; then
 	echo Bringing up tap device tap-${class:+$class-}$vm
 	sudo ifconfig tap-${class:+$class-}$vm up
