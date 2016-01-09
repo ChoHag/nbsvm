@@ -214,6 +214,12 @@ while [ "$1" ]; do
           sudo brctl addif $bridge tap-${class:+$class-}$vm
         fi
       fi
+
+      # Execute a post-launch script
+      if [ -e /etc/nbsvm/${class:+$class-}$vm.post ]; then
+	  # Use a subshell to preserve this binary's environment
+	  ( . /etc/nbsvm/${class:+$class-}$vm.post )
+      fi
       ;;
 
     # Connect to the VM's serial console.
