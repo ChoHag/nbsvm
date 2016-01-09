@@ -25,8 +25,8 @@ fi
 # are created, as it's what *uses* the defaults set here and in the
 # .class files
 store=${store:-lvm}
-dev=nbsvm${class:+-$class}-$vm
-drawer=/var/lib/nbsvm${class:+-$class}/$vm
+dev=${dev:-nbsvm${class:+-$class}-$vm}
+drawer=${drawer:-/var/lib/nbsvm${class:+-$class}/$vm}
 if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
   . /etc/nbsvm/${class:+$class-}$vm.vm
 fi
