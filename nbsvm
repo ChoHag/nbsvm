@@ -2,24 +2,36 @@
 [ "$debug" ] && set -x
 set -e
 
+# Define $class from whichever comes first of $class and $0-sans-vm-suffix
 if [ -z "$class" -a "${0##*/}" != "nbsvm" ]; then
   class=${0##*/}
   class=${class%vm}
 fi
+
+# The first argument is always the VM
 vm=$1
 shift
 
+# Load in reverse order so that $class overrides default when
+# variables are set using the ${var:-default} syntax.
+if [ -e /etc/nbsvm/"$class".class ]; then
+  . /etc/nbsvm/"$class".class
+fi
 if [ -e /etc/nbsvm/default.class ]; then
   . /etc/nbsvm/default.class
 fi
 
-if [ -e /etc/nbsvm/"$class".class ]; then
-  . /etc/nbsvm/"$class".class
-fi
-
+# "$vm".vm still needs to be loaded last, and after these variables
+# are created, as it's what *uses* the defaults set here and in the
+# .class files
 store=${store:-lvm}
 dev=nbsvm${class:+-$class}-$vm
 drawer=/var/lib/nbsvm${class:+-$class}/$vm
+if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
+  . /etc/nbsvm/${class:+$class-}$vm.vm
+fi
+
+# Create $drive_devs from $prefix, $vg/$zpool and $dev
 set_drive_devs() {
   if [[ "$store" == lvm ]]; then
     prefix=/dev/${vg:-vg0}/$dev
@@ -37,20 +49,24 @@ set_drive_devs() {
   fi
 }
 
-if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
-  . /etc/nbsvm/${class:+$class-}$vm.vm
-fi
-
 while [ "$1" ]; do
+  # After removing the VM's name, each succeeding argument is the
+  # command to run followed by *its* arguments. start's arguments are
+  # terminated by a --, everything else expects a specific number of
+  # arguments (usually 0).
   cmd=$1
   shift
 
   case "$cmd" in
+    # A pure numerical argument is a number of seconds to
+    # sleep. Mostly useful to wait between stopping and starting again
+    # with: nbsvm foo stop 3 start
     [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # That'll do
       echo Idling for $cmd second\(s\)...
       sleep $cmd
       ;;
 
+    # Create a[nother] drive image.
     newimg|newimage)
       set_drive_devs
       next=${#drive_devs[@]}
@@ -63,6 +79,8 @@ while [ "$1" ]; do
       fi
       ;;
 
+    # Take a snapshot of the zero'th (or $snapshot_id'th) drive image.
+    # TODO: Needs some more thought. API unstable.
     snapshot)
       set_drive_devs
       next=${#drive_devs[@]}
@@ -80,6 +98,8 @@ while [ "$1" ]; do
       fi
       ;;
 
+    # Clone or duplicate the gold image into a[nother] drive image.
+    # TODO: Needs some more thought. API unstable.
     clone)
       set_drive_devs
       next=${#drive_devs[@]}
@@ -104,6 +124,7 @@ while [ "$1" ]; do
       fi
       ;;
 
+    # Start the VM.
     start)
       # Find extra arguments
       unset stop runargs
@@ -195,29 +216,35 @@ while [ "$1" ]; do
       fi
       ;;
 
+    # Connect to the VM's serial console.
     console|serial|serial0)
       echo For reasons unknown, ^O is the panic button.
       socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/serial0.sock
       ;;
 
+    # Connect to the hypervisor's console.
     monitor|kvm|qemu)
       echo For reasons unknown, ^O is the panic button.
       socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/qemu.sock
       ;;
 
+    # Connect to the VM's VNC console.
     vnc)
       socat TCP-LISTEN:${vnc_port:-5900},reuseaddr,fork UNIX-CLIENT:$drawer/vnc.sock &
       vncviewer localhost:${vnc_port:-5900}
       ;;
 
+    # Stop the VM without prejudice.
     stop|quit)
       echo quit | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
 
+    # Press the VM's off button.
     shutdown)
       echo system_powerdown | socat - UNIX-CONNECT:$drawer/qemu.sock
       ;;
 
+    # Complain.
     *)
       echo Unknown command: $cmd. >&2
       exit 1
