@@ -2,8 +2,8 @@ nbsvm
 =====
 
 Create, start and interact with VMs from the command line without the bullshit.
-Requires lvm, kvm and sudo. Socat and a vnc client are needed to interact with
-(and stop) a running VM.
+Requires zfs or lvm, kvm and sudo. Socat and a vnc client are needed
+to interact with (and stop) a running VM.
 
 
 
@@ -86,8 +86,10 @@ Connect to a running VM:
 
 Clones and snapshots:
 
-LVM and ZFS are selected by setting the $store variable (default: lvm). Each
-has a different concept of snapshots and clones, which nbsvm follows:
+The cloning/snapshot API is not very good and is liable to change when
+I work out what it should be. LVM or ZFS is selected by setting the
+$store variable (default: lvm). Each has a different concept of
+snapshots and clones, which nbsvm follows:
 
   LVM (store=lvm):
 

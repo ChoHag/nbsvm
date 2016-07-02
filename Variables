@@ -49,6 +49,12 @@ display
   Default: -display vnc=unix:$drawer/vnc.sock
 
 
+group
+  The group which shares socks.
+
+  Default: Current user's
+
+
 hypervisor
   The kvm binary to call.
 
@@ -59,6 +65,14 @@ mem
   Amount of RAM to start the VM with in MB.
 
   Default: 512M
+
+
+socat_tty
+  The local address to connect to the unix socket using socat's
+  UNIX-CONNECT address type in the serial and monitor commands.
+
+  Default (on tty): -,raw,echo=0,escape=0x0f
+  Default (no tty): -
 
 
 usb

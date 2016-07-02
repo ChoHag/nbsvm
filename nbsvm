@@ -2,18 +2,21 @@
 [ "$debug" ] && set -x
 set -e
 
-# Define $class from whichever comes first of $class and $0-sans-vm-suffix
+# Define $class from whichever comes first of $class and $0-sans-vm-suffix.
 if [ -z "$class" -a "${0##*/}" != "nbsvm" ]; then
   class=${0##*/}
   class=${class%vm}
 fi
 
-# The first argument is always the VM
+# The first argument is always the VM's name.
 vm=$1
 shift
 
-# Load in reverse order so that $class overrides default when
-# variables are set using the ${var:-default} syntax.
+# Load in reverse order so that defaults are overridden by class and
+# further by vm when using bash's ${variable:-default_value} syntax.
+if [ -e /etc/nbsvm/"${class:+$class-}$vm".vm ]; then
+  . /etc/nbsvm/"${class:+$class-}$vm".vm
+fi
 if [ -e /etc/nbsvm/"$class".class ]; then
   . /etc/nbsvm/"$class".class
 fi
@@ -21,17 +24,16 @@ if [ -e /etc/nbsvm/default.class ]; then
   . /etc/nbsvm/default.class
 fi
 
-# "$vm".vm still needs to be loaded last, and after these variables
-# are created, as it's what *uses* the defaults set here and in the
-# .class files
 store=${store:-lvm}
 dev=${dev:-nbsvm${class:+-$class}-$vm}
 drawer=${drawer:-/var/lib/nbsvm${class:+-$class}/$vm}
-if [ -e /etc/nbsvm/${class:+$class-}$vm.vm ]; then
-  . /etc/nbsvm/${class:+$class-}$vm.vm
+if tty >/dev/null 2>&1; then
+  : ${socat_tty:=-,raw,echo=0,escape=0x0f}
+else
+  : ${socat_tty:=-}
 fi
 
-# Create $drive_devs from $prefix, $vg/$zpool and $dev
+# Create $drive_devs from $prefix, $vg/$zpool and $dev.
 set_drive_devs() {
   if [[ "$store" == lvm ]]; then
     prefix=/dev/${vg:-vg0}/$dev
@@ -58,12 +60,20 @@ while [ "$1" ]; do
   shift
 
   case "$cmd" in
-    # A pure numerical argument is a number of seconds to
-    # sleep. Mostly useful to wait between stopping and starting again
-    # with: nbsvm foo stop 3 start
-    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # That'll do
+    # A numerical argument is a number of seconds to sleep. This is
+    # mostly useful to wait between stopping and starting again with:
+    #     nbsvm foo stop 3 start
+    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]) # That'll do.
       echo Idling for $cmd second\(s\)...
       sleep $cmd
+      ;;
+
+    # Print the drive[s] this VM will use to stdout.
+    drives)
+      set_drive_devs
+      for dev in "${drive_devs[@]}"; do
+        echo "$dev"
+      done
       ;;
 
     # Create a[nother] drive image.
@@ -116,7 +126,7 @@ while [ "$1" ]; do
         sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
 
       elif [[ "$store" == zfs ]]; then
-        source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
+        source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
         name=$dev-$next
         dest=${zpool:-tank}/$name
         echo Cloning ZFS snapshot $source_dev to $dest
@@ -126,7 +136,7 @@ while [ "$1" ]; do
 
     # Start the VM.
     start)
-      # Find extra arguments
+      # Find extra arguments.
       unset stop runargs
       while [ -n "$1" -a -z "$stop" ]; do
         if [ ."$1" = ."--" ]; then
@@ -137,56 +147,57 @@ while [ "$1" ]; do
         shift
       done
       if [ ${#runargs[@]} -ne 0 -a "${runargs[0]}" = "_" ]; then
-          # Replace _ with $args if it's the first ...
-          unset runargs[0]
-          runargs=("${args[@]}" "${runargs[@]}")
+        # Replace _ with $args if it's the first cli argument.
+        unset runargs[0]
+        runargs=("${args[@]}" "${runargs[@]}")
       elif [ ${#runargs[@]} -ne 0 ]; then
-	  _last=$((${#runargs[@]}-1))
-	  # (nested in case $_last is invalid)
-	  if [ "${runargs[$_last]}" = "_" ]; then
-              # ... or last cli argument
-              unset runargs[$((${#runargs[@]}-1))]
-              runargs+=("${args[@]}")
-	  fi
+        # Replace _ with $args if it's the last cli argument.
+        _last=$((${#runargs[@]}-1))
+        # (nested in case $_last is invalid).
+        if [ "${runargs[$_last]}" = "_" ]; then
+          unset runargs[$((${#runargs[@]}-1))]
+          runargs+=("${args[@]}")
+        fi
+      elif [ ${#runargs[@]} -eq 1 -a x"$runargs" = x ]; then
+        # Pass no additional arguments if the first and only cli argument is ''.
+        unset runargs
       elif [ ${#runargs[@]} -eq 0 ]; then
-          # Use $args verbatim if no cli arguments are present. Can't
-          # override $args with nothing, but "-k en-us" or
-          # "-enable-kvm" can be used as a no-op.
-          runargs=("${args[@]}")
+        # Use $args verbatim if no cli arguments are present.
+        runargs=("${args[@]}")
       fi
 
-      # Prepare filesystem
+      # Prepare filesystem.
       sudo mkdir -p $drawer
       echo Laundering old socks.
       for sock in {qemu,serial0,vnc}.sock; do
         # Move socks to a backup file to enable recovery when
         # attempting to start a VM which is already running.
         if [ -e $drawer/$sock ]; then
-            sudo mv -f $drawer/$sock $drawer/$sock~
+          sudo mv -f $drawer/$sock $drawer/$sock~
         fi
       done
 
-      # Launch binary
+      # Launch binary.
       echo Launching KVM \"$vm\"${class:+, type $class}.
       set_drive_devs
       sudo ${hypervisor:-kvm} --name $vm -m ${mem:-512}    \
-        -serial unix:$drawer/serial0.sock,server,nowait    \
-        -monitor unix:$drawer/qemu.sock,server,nowait      \
+           -serial unix:$drawer/serial0.sock,server,nowait \
+           -monitor unix:$drawer/qemu.sock,server,nowait   \
                                                            \
-        ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
+           ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
                                                            \
-        ${display:--display vnc=unix:$drawer/vnc.sock}     \
+           ${display:--display vnc=unix:$drawer/vnc.sock}  \
                                                            \
-        ${usb:--usb -usbdevice tablet}                     \
+           ${usb:--usb -usbdevice tablet}                  \
                                                            \
-        ${network:-
-          -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
-          -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
-        }                                                  \
+           ${network:-
+             -device ${net_if:-virtio-net-pci},netdev=net${mac:+,mac=$mac}
+             -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
+           }                                               \
                                                            \
-        "${runargs[@]}" &
+           "${runargs[@]}" &
 
-      # Footle socks (they're not gloves)
+      # Footle socks (they're not gloves).
       echo -n Waiting for clean socks...
       count=0
       take_sock() {
@@ -194,8 +205,8 @@ while [ "$1" ]; do
           ((count+=1))
           if [ x"${count%[50]}" != x"$count" ]; then echo -n .; fi
           if [ $count -ge 60 ]; then
-              echo Giving up waiting for "$1" >&2
-              return # Don't return an error even though it is
+            echo Giving up waiting for "$1" >&2
+            return # Don't return an error even though it is.
           fi
           sleep 1
         done
@@ -205,11 +216,11 @@ while [ "$1" ]; do
       take_sock $drawer/qemu.sock
       take_sock $drawer/serial0.sock
       if [[ ! -v display || -v vncsock ]]; then
-          take_sock $drawer/vnc.sock
+        take_sock $drawer/vnc.sock
       fi
       echo
 
-      # Bring up network
+      # Bring up network.
       if [ -z "$network" ]; then
         echo Bringing up tap device tap-${class:+$class-}$vm
         sudo ifconfig tap-${class:+$class-}$vm up
@@ -219,29 +230,40 @@ while [ "$1" ]; do
         fi
       fi
 
-      # Execute a post-launch script
+      # Execute a post-launch script.
       if [ -e /etc/nbsvm/${class:+$class-}$vm.post ]; then
-	  # Use a subshell to preserve this binary's environment
-	  ( . /etc/nbsvm/${class:+$class-}$vm.post )
+        # Use a subshell to preserve this binary's environment.
+        ( . /etc/nbsvm/${class:+$class-}$vm.post )
       fi
       ;;
 
     # Connect to the VM's serial console.
     console|serial|serial0)
-      echo For reasons unknown, ^O is the panic button.
-      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/serial0.sock
+      echo For reasons unknown, ^O is the default panic button.
+      socat "$socat_tty" UNIX-CONNECT:$drawer/serial0.sock
       ;;
 
     # Connect to the hypervisor's console.
     monitor|kvm|qemu)
-      echo For reasons unknown, ^O is the panic button.
-      socat -,raw,echo=0,escape=0x0f UNIX-CONNECT:$drawer/qemu.sock
+      echo For reasons unknown, ^O is the default panic button.
+      socat "$socat_tty" UNIX-CONNECT:$drawer/qemu.sock
       ;;
 
     # Connect to the VM's VNC console.
     vnc)
       socat TCP-LISTEN:${vnc_port:-5900},reuseaddr,fork UNIX-CLIENT:$drawer/vnc.sock &
       vncviewer localhost:${vnc_port:-5900}
+      ;;
+
+    # Print this VM's status (or the connection error) and exit with
+    # non-zero if it's not running and this is the last command.
+    status)
+      # qemu's monitor is full of ansi escapes and other bullshit because of course it is.
+      status=$(echo info status | socat - UNIX-CONNECT:$drawer/qemu.sock | grep -A1 info\ status | tail -n1 | tr -d \\r)
+      echo "$status"
+      if [ $# = 0 ]; then # No more commands.
+        [ "${status#*: }" = "running" ]
+      fi
       ;;
 
     # Stop the VM without prejudice.
