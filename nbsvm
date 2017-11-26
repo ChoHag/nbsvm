@@ -181,7 +181,7 @@ while [ "$1" ]; do
       echo Launching KVM \"$vm\"${class:+, type $class}.
       set_drive_devs
       sudo ${hypervisor:-kvm} --name $vm -m ${mem:-512}    \
-           -smp ${smp:-1}                                  \
+           ${smp:+-smp $smp}                               \
            -serial unix:$drawer/serial0.sock,server,nowait \
            -monitor unix:$drawer/qemu.sock,server,nowait   \
                                                            \

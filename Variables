@@ -67,6 +67,12 @@ mem
   Default: 512M
 
 
+smp
+  Options to pass to -smp. Typically an integer number of CPUs.
+
+  Default: none
+
+
 socat_tty
   The local address to connect to the unix socket using socat's
   UNIX-CONNECT address type in the serial and monitor commands.
