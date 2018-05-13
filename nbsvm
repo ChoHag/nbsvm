@@ -1,9 +1,19 @@
-#!/bin/bash
+#!/bin/sh
+# No [[ ]] - might be in a real /bin/sh at this point
 [ "$debug" ] && set -x
+if [ -z "$BASH_VERSION" -a -z "$KSH_VERSION" ]; then
+  _reexec=
+  ksh -c : 2>/dev/null && _reexec=ksh
+  [ -z "$_reexec" ] && bash -c : 2>/dev/null && _reexec=bash
+  [ -n "$_reexec" ] && exec $_reexec "$0" "$@"
+  echo "Cannot find a decent shell, or even bash" >&2
+  exit 1
+fi
+
 set -e
 
 # Define $class from whichever comes first of $class and $0-sans-vm-suffix.
-if [ -z "$class" -a "${0##*/}" != "nbsvm" ]; then
+if [[ -z "$class" && "${0##*/}" != "nbsvm" ]]; then
   class=${0##*/}
   class=${class%vm}
 fi
@@ -14,13 +24,13 @@ shift
 
 # Load in reverse order so that defaults are overridden by class and
 # further by vm when using bash's ${variable:-default_value} syntax.
-if [ -e /etc/nbsvm/"${class:+$class-}$vm".vm ]; then
+if [[ -e /etc/nbsvm/"${class:+$class-}$vm".vm ]]; then
   . /etc/nbsvm/"${class:+$class-}$vm".vm
 fi
-if [ -e /etc/nbsvm/"$class".class ]; then
+if [[ -e /etc/nbsvm/"$class".class ]]; then
   . /etc/nbsvm/"$class".class
 fi
-if [ -e /etc/nbsvm/default.class ]; then
+if [[ -e /etc/nbsvm/default.class ]]; then
   . /etc/nbsvm/default.class
 fi
 
@@ -33,6 +43,24 @@ else
   : ${socat_tty:=-}
 fi
 
+# These are quite ugly but they DTRT in ksh and bash. Don't think
+# about them too hard.
+_copy_array() {
+  local _clear=1
+  if [[ "$1" = "--append" ]]; then shift; unset _clear; fi
+  local _from="$1" _to="$2"
+  [[ -n "$_clear" ]] && eval unset $_to
+  eval "for arg in \"\${${_from}[@]}\"; do ${_to}[\${#${_to}[@]}]=\$arg; done"
+}
+
+_make_array() {
+  local _clear=1
+  if [[ "$1" = "--append" ]]; then shift; unset _clear; fi
+  local _to="$1"; shift
+  [[ -n "$_clear" ]] && eval unset $_to
+  eval "for arg; do ${_to}[\${#${_to}[@]}]=\$arg; done"
+}
+
 # Create $drive_devs from $prefix, $vg/$zpool and $dev.
 set_drive_devs() {
   if [[ "$store" == lvm ]]; then
@@ -41,17 +69,16 @@ set_drive_devs() {
     prefix=/dev/zvol/${zpool:-tank}/$dev
   fi
 
+  unset drive_devs
   if [[ -e $prefix-0 ]]; then
-    drive_devs=($prefix-[0-9])
+    _make_array drive_devs $prefix-[0-9]
     if [[ -e $prefix-10 ]]; then
-      drive_devs+=($prefix-[0-9][0-9])
+      _make_array --append drive_devs $prefix-[1-9][0-9]
     fi
-  else
-    unset drive_devs
   fi
 }
 
-while [ "$1" ]; do
+while [[ -n "$1" ]]; do
   # After removing the VM's name, each succeeding argument is the
   # command to run followed by *its* arguments. start's arguments are
   # terminated by a --, everything else expects a specific number of
@@ -136,56 +163,70 @@ while [ "$1" ]; do
 
     # Start the VM.
     start)
-      # Find extra arguments.
+      # If qemu arguments are supplied on the command-line they
+      # supercede $args from the config _unless_ the first or last cli
+      # argument is '_', in which case it is replaced with $args
       unset stop runargs
-      while [ -n "$1" -a -z "$stop" ]; do
-        if [ ."$1" = ."--" ]; then
+      # Start by populating $runargs with the arguments from the cli
+      # until '--' is reached or there are no more.
+      while [[ $# != 0 && -z "$stop" ]]; do
+        if [[ "$1" == "--" ]]; then
           stop=1
         else
-          runargs+=("$1")
+          runargs[${#runargs[@]}]="$1"
         fi
         shift
       done
-      if [ ${#runargs[@]} -ne 0 -a "${runargs[0]}" = "_" ]; then
-        # Replace _ with $args if it's the first cli argument.
+
+      # Replace _ with $args if it's the first cli argument.
+      if [[ ${#runargs[@]} -ne 0 && "${runargs[0]}" = "_" ]]; then
         unset runargs[0]
-        runargs=("${args[@]}" "${runargs[@]}")
-      elif [ ${#runargs[@]} -ne 0 ]; then
-        # Replace _ with $args if it's the last cli argument.
-        _last=$((${#runargs[@]}-1))
-        # (nested in case $_last is invalid).
-        if [ "${runargs[$_last]}" = "_" ]; then
-          unset runargs[$((${#runargs[@]}-1))]
-          runargs+=("${args[@]}")
+        # First copy $args[@] and the remaining $runargs[@] into $full_args
+        _copy_array args full_args
+        _copy_array --append runargs full_args
+        # Then copy $full_args into $runargs
+        _copy_array full_args runargs
+        unset full_args
+
+      # _or_ replace _ with $args if it's the _last_ cli argument.
+      elif [[ ${#runargs[@]} -ne 0 ]]; then
+        _last=$((${#runargs[@]}-1)) # Separate variable as it could be -1
+        if [ $_last -ge 0 && "${runargs[$_last]}" = "_" ]; then
+          unset runargs[$_last]
+          _copy_array --append args runargs
         fi
-      elif [ ${#runargs[@]} -eq 1 -a x"$runargs" = x ]; then
-        # Pass no additional arguments if the first and only cli argument is ''.
-        unset runargs
-      elif [ ${#runargs[@]} -eq 0 ]; then
-        # Use $args verbatim if no cli arguments are present.
-        runargs=("${args[@]}")
+
+      # Finally if there are _no_ command-line arguments, use $args
+      elif [[ ${#runargs[@]} -eq 0 ]]; then
+        _copy_array args runargs
       fi
 
       # Prepare filesystem.
       sudo mkdir -p $drawer
       echo Laundering old socks.
-      for sock in {qemu,serial0,vnc}.sock; do
+      for sock in $drawer/*.sock; do
         # Move socks to a backup file to enable recovery when
         # attempting to start a VM which is already running.
-        if [ -e $drawer/$sock ]; then
-          sudo mv -f $drawer/$sock $drawer/$sock~
+        if [[ -e $sock ]]; then
+          sudo mv -f $sock $sock~
         fi
       done
 
       # Launch binary.
-      echo Launching KVM \"$vm\"${class:+, type $class}.
+      echo Launching KVM/Qemu VM \"$vm\"${class:+, type $class}.
       set_drive_devs
-      sudo ${hypervisor:-kvm} --name $vm -m ${mem:-512}    \
+      unset drives_arg
+      for _d in "${drive_devs[@]}"; do
+        # Bash can do ${drive_decs[@]/#/...}, ksh can't
+        drives_arg="$drives_arg -drive if=${drive_id:-virtio},file=$_d"
+      done
+      sudo ${hypervisor:-kvm} --name ${class:+$class-}$vm  \
+           -m ${mem:-512}                                  \
            ${smp:+-smp $smp}                               \
            -serial unix:$drawer/serial0.sock,server,nowait \
            -monitor unix:$drawer/qemu.sock,server,nowait   \
                                                            \
-           ${drives:-${drive_devs[@]/#/-drive if=${drive_if:-virtio},file=}} \
+           ${drives:-$drives_arg}                          \
                                                            \
            ${display:--display vnc=unix:$drawer/vnc.sock}  \
                                                            \
@@ -196,7 +237,7 @@ while [ "$1" ]; do
              -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
            }                                               \
                                                            \
-           "${runargs[@]}" &
+           "${runargs[@]}" </dev/null 1>&0 2<&0 & # TODO: Send this somewhere useful
 
       # Footle socks (they're not gloves).
       echo -n Waiting for clean socks...
@@ -204,8 +245,9 @@ while [ "$1" ]; do
       take_sock() {
         while ! ls "$1" >/dev/null 2>&1; do
           ((count+=1))
-          if [ x"${count%[50]}" != x"$count" ]; then echo -n .; fi
-          if [ $count -ge 60 ]; then
+          # Print a '.' every ~5 seconds
+          if [[ x"${count%[50]}" != x"$count" ]]; then echo -n .; fi
+          if [[ $count -ge 60 ]]; then
             echo Giving up waiting for "$1" >&2
             return # Don't return an error even though it is.
           fi
@@ -216,13 +258,15 @@ while [ "$1" ]; do
       }
       take_sock $drawer/qemu.sock
       take_sock $drawer/serial0.sock
-      if [[ ! -v display || -v vncsock ]]; then
+      # If $display is set $vncsock can still be used to inform this
+      # script where the vnc sock is.
+      if [[ -z "$display" || -n "$vncsock" ]]; then # 3 feet?
         take_sock $drawer/vnc.sock
       fi
       echo
 
       # Bring up network.
-      if [ -z "$network" ]; then
+      if [[ -z "$network" ]]; then
         echo Bringing up tap device tap-${class:+$class-}$vm
         sudo ifconfig tap-${class:+$class-}$vm up
         if [ "$bridge" ]; then
@@ -232,7 +276,7 @@ while [ "$1" ]; do
       fi
 
       # Execute a post-launch script.
-      if [ -e /etc/nbsvm/${class:+$class-}$vm.post ]; then
+      if [[ -e /etc/nbsvm/${class:+$class-}$vm.post ]]; then
         # Use a subshell to preserve this binary's environment.
         ( . /etc/nbsvm/${class:+$class-}$vm.post )
       fi
@@ -262,8 +306,8 @@ while [ "$1" ]; do
       # qemu's monitor is full of ansi escapes and other bullshit because of course it is.
       status=$(echo info status | socat - UNIX-CONNECT:$drawer/qemu.sock | grep -A1 info\ status | tail -n1 | tr -d \\r)
       echo "$status"
-      if [ $# = 0 ]; then # No more commands.
-        [ "${status#*: }" = "running" ]
+      if [[ $# = 0 ]]; then # No more commands.
+        [[ "${status#*: }" = "running" ]]
       fi
       ;;
 
