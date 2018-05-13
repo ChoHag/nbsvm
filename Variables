@@ -21,6 +21,7 @@ drawer
   Where kvm keeps its socks.
 
   Default: /var/lib/nbsvm/$vm or /var/lib/nbsvm-class/$vm
+  If /var/lib doesn't exist, the default is rooted in /var directly instead.
 
 
 vnc_port
@@ -61,10 +62,23 @@ hypervisor
   Default: kvm
 
 
+log
+  Where to send qemu's output.
+
+  Default: $debug or /dev/null; /dev/stderr if $debug is exactly '1'.
+
+
 mem
   Amount of RAM to start the VM with in MB.
 
   Default: 512M
+
+
+root
+  How to gain root when necessary. Set it to ' ' to run entirely unprivileged
+  but note that some functionality may be unavailable.
+
+  Default: doas on OpenBSD, sudo on everything else.
 
 
 smp
@@ -77,7 +91,7 @@ socat_tty
   The local address to connect to the unix socket using socat's
   UNIX-CONNECT address type in the serial and monitor commands.
 
-  Default (on tty): -,raw,echo=0,escape=0x0f
+  Default (on tty): -,raw,echo=0,escape=0x1d
   Default (no tty): -
 
 
@@ -138,7 +152,7 @@ lv_name
 
 
 store
-  The type of storage backend to use. "lvm" or "zfs".
+  The type of storage backend to use. "lvm", "zfs" or "file:/path/to/root"
 
   Default: lvm
 

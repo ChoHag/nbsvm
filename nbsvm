@@ -34,11 +34,14 @@ if [[ -e /etc/nbsvm/default.class ]]; then
   . /etc/nbsvm/default.class
 fi
 
+[[ "$(uname)" = OpenBSD ]] && _default_root=doas || _default_root=sudo
+root=${root:-$_default_root}
 store=${store:-lvm}
 dev=${dev:-nbsvm${class:+-$class}-$vm}
-drawer=${drawer:-/var/lib/nbsvm${class:+-$class}/$vm}
+[[ -e /var/lib ]] && _var=/var/lib || _var=/var
+drawer=${drawer:-$_var/nbsvm${class:+-$class}/$vm}
 if tty >/dev/null 2>&1; then
-  : ${socat_tty:=-,raw,echo=0,escape=0x0f}
+  : ${socat_tty:=-,raw,echo=0,escape=0x1d}
 else
   : ${socat_tty:=-}
 fi
@@ -67,6 +70,8 @@ set_drive_devs() {
     prefix=/dev/${vg:-vg0}/$dev
   elif [[ "$store" == zfs ]]; then
     prefix=/dev/zvol/${zpool:-tank}/$dev
+  elif [[ "${store%%:*}" == file ]]; then
+    prefix=${store#file:}/$dev
   fi
 
   unset drive_devs
@@ -109,14 +114,19 @@ while [[ -n "$1" ]]; do
       next=${#drive_devs[@]}
       if [[ "$store" == lvm ]]; then
         echo Creating ${drive_size:-10G} LV ${vg:-vg0}/$dev-$next for $vm.
-        sudo lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
+        $root lvcreate ${vg:-vg0} -L ${drive_size:-10G} -n "${lv_name:-$dev-$next}"
       elif [[ "$store" == zfs ]]; then
         echo Creating ${drive_size:-10G} ZFS volume ${zvol_name:-${zpool:-tank}/$dev-$next} for $vm.
-        sudo zfs create -V ${drive_size:-10G} ${zvol_name:-${zpool:-tank}/$dev-$next}
+        $root zfs create -V ${drive_size:-10G} ${zvol_name:-${zpool:-tank}/$dev-$next}
+      elif [[ "${store%%:*}" == file ]]; then
+        echo Creating ${drive_size:-10G} file ${file_name:-${store#file:}/$dev-$next} for $vm.
+        _gb=1073741824 # ie. 1024³
+        # TODO: Warn if file exists? Remove it? Ensure it's big enough?
+        dd if=/dev/zero of=${file_name:-${store#file:}/$dev-$next} bs=1 seek=$((${drive_size:-10}*$_gb-1)) count=1
       fi
       ;;
 
-    # Take a snapshot of the zero'th (or $snapshot_id'th) drive image.
+    # Take a snapshot of $source, or the zero'th (or $snapshot_id'th) drive image.
     # TODO: Needs some more thought. API unstable.
     snapshot)
       set_drive_devs
@@ -125,13 +135,19 @@ while [[ -n "$1" ]]; do
         source_dev=${source:-${vg:-vg0}/${snapshot_name:-$dev-${snapshot_id:-0}}}
         dest=$dev-${gold:-gold}
         echo Creating ${snapshot_size:-2G} snapshot $dest of $source_dev.
-        sudo lvcreate -s /dev/$source_dev -L ${snapshot_size:-2G} -n $dest
+        $root lvcreate -s /dev/$source_dev -L ${snapshot_size:-2G} -n $dest
 
       elif [[ "$store" == zfs ]]; then
         source_dev=${source:-${zpool:-tank}/${snapshot_name:-$dev-${snapshot_id:-0}}}
         dest=$source_dev@${gold:-gold}
         echo Creating ZFS snapshot $dest for $vm.
-        sudo zfs snapshot $dest
+        $root zfs snapshot $dest
+
+      elif [[ "${store%%:*}" == file ]]; then
+        source_dev=${source:-${store#file:}/${snapshot_name:-$dev-${snapshot_id:-0}}}
+        dest=$source_dev-${gold:-gold}
+        echo Creating file snapshot $dest for $vm.
+        cp -p $source_dev $dest
       fi
       ;;
 
@@ -145,19 +161,26 @@ while [[ -n "$1" ]]; do
         name=$dev-$next
         dest=${vg:-vg0}/$name
         echo Cloning $source_dev to LV $name for $vm.
-        size=$(sudo lvs -o origin_size --units b --noheadings --nosuffix /dev/$source_dev)
+        size=$($root lvs -o origin_size --units b --noheadings --nosuffix /dev/$source_dev)
         if [[ $size -eq 0 ]]; then
-          size=$(sudo lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
+          size=$($root lvs -o lv_size --units b --noheadings --nosuffix /dev/$source_dev)
         fi
-        sudo lvcreate ${vg:-vg0} -L ${size}b -n $name
-        sudo dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
+        $root lvcreate ${vg:-vg0} -L ${size}b -n $name
+        $root dd if=/dev/$source_dev of=/dev/$dest bs="${bs:-${BLOCKSIZE:-1048576}}" ${ddopt:+$ddopt}
 
       elif [[ "$store" == zfs ]]; then
         source_dev=${source:-${zpool:-tank}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}@${gold:-gold}}}
         name=$dev-$next
         dest=${zpool:-tank}/$name
         echo Cloning ZFS snapshot $source_dev to $dest
-        sudo zfs clone $source_dev $dest
+        $root zfs clone $source_dev $dest
+
+      elif [[ "${store%%:*}" == file ]]; then
+        source_dev=${source:-${store#file:}/${snapshot_name:-nbsvm${class:+-$class}${gold_vm:+-$gold_vm}-${gold:-gold}}}
+        name=$dev-$next
+        dest=${zpool:-tank}/$name
+        echo Cloning file snapshot $source_dev to $dest
+        cp -p $source_dev $dest
       fi
       ;;
 
@@ -191,7 +214,7 @@ while [[ -n "$1" ]]; do
       # _or_ replace _ with $args if it's the _last_ cli argument.
       elif [[ ${#runargs[@]} -ne 0 ]]; then
         _last=$((${#runargs[@]}-1)) # Separate variable as it could be -1
-        if [ $_last -ge 0 && "${runargs[$_last]}" = "_" ]; then
+        if [[ $_last -ge 0 && "${runargs[$_last]}" = "_" ]]; then
           unset runargs[$_last]
           _copy_array --append args runargs
         fi
@@ -202,13 +225,13 @@ while [[ -n "$1" ]]; do
       fi
 
       # Prepare filesystem.
-      sudo mkdir -p $drawer
+      $root mkdir -p $drawer
       echo Laundering old socks.
       for sock in $drawer/*.sock; do
         # Move socks to a backup file to enable recovery when
         # attempting to start a VM which is already running.
         if [[ -e $sock ]]; then
-          sudo mv -f $sock $sock~
+          $root mv -f $sock $sock~
         fi
       done
 
@@ -220,7 +243,9 @@ while [[ -n "$1" ]]; do
         # Bash can do ${drive_decs[@]/#/...}, ksh can't
         drives_arg="$drives_arg -drive if=${drive_id:-virtio},file=$_d"
       done
-      sudo ${hypervisor:-kvm} --name ${class:+$class-}$vm  \
+      log=${log:-${debug:-/dev/null}}
+      if [[ $log = 1 ]]; then log=/dev/stderr; fi
+      $root ${hypervisor:-kvm} --name ${class:+$class-}$vm \
            -m ${mem:-512}                                  \
            ${smp:+-smp $smp}                               \
            -serial unix:$drawer/serial0.sock,server,nowait \
@@ -237,7 +262,7 @@ while [[ -n "$1" ]]; do
              -netdev tap,id=net,ifname=tap-${class:+$class-}$vm,script=no,downscript=no
            }                                               \
                                                            \
-           "${runargs[@]}" </dev/null 1>&0 2<&0 & # TODO: Send this somewhere useful
+           "${runargs[@]}" <"$log" 1>&0 2<&0 &
 
       # Footle socks (they're not gloves).
       echo -n Waiting for clean socks...
@@ -253,8 +278,8 @@ while [[ -n "$1" ]]; do
           fi
           sleep 1
         done
-        sudo chgrp ${group:-$(getent group $(id -g) | cut -d: -f1)} "$1"
-        sudo chmod g+w "$1"
+        $root chgrp ${group:-$(getent group $(id -g) | cut -d: -f1)} "$1"
+        $root chmod g+w "$1"
       }
       take_sock $drawer/qemu.sock
       take_sock $drawer/serial0.sock
@@ -268,10 +293,10 @@ while [[ -n "$1" ]]; do
       # Bring up network.
       if [[ -z "$network" ]]; then
         echo Bringing up tap device tap-${class:+$class-}$vm
-        sudo ifconfig tap-${class:+$class-}$vm up
+        $root ifconfig tap-${class:+$class-}$vm up
         if [ "$bridge" ]; then
           echo Adding tap device to bridge $bridge
-          sudo brctl addif $bridge tap-${class:+$class-}$vm
+          $root brctl addif $bridge tap-${class:+$class-}$vm
         fi
       fi
 
@@ -284,7 +309,7 @@ while [[ -n "$1" ]]; do
 
     # Connect to the VM's serial console.
     console|serial|serial0)
-      echo For reasons unknown, ^O is the default panic button.
+      echo In a vain attempt to find an unused key, ^] is the default panic button
       socat "$socat_tty" UNIX-CONNECT:$drawer/serial0.sock
       ;;
 
